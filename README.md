@@ -1,16 +1,20 @@
-# myapp
+# 🪙 MaidPocket: Your Simple, Reliable Finance Assistant
 
-A new Flutter project.
+> "Manage your coins with ease, as dependable as a dedicated assistant."
 
-## Getting Started
+**MaidPocket** is a minimalist personal finance manager designed for those who value simplicity and data privacy. No unnecessary cloud syncs, no cluttered menus—just a straightforward tool to keep your financial life in check.
 
-This project is a starting point for a Flutter application.
+---
 
-A few resources to get you started if this is your first Flutter project:
+### ✨ Key Features
+* **Minimalist UI:** Clean and intuitive design focused on ease of use.
+* **Fast Logging:** Record expenses and income in seconds.
+* **Privacy-Focused:** Powered by a local **SQFlite** database. Your data never leaves your device.
+* **Reliable Logic:** Accurate transaction tracking with robust error handling.
 
-- [Lab: Write your first Flutter app](https://docs.flutter.dev/get-started/codelab)
-- [Cookbook: Useful Flutter samples](https://docs.flutter.dev/cookbook)
+### 🛠️ Technical Highlights
+* Built with **Flutter** for a smooth cross-platform experience.
+* Uses **FFI (Foreign Function Interface)** for seamless database initialization.
+* Optimized build process with custom **Launcher Icons**.
 
-For help getting started with Flutter development, view the
-[online documentation](https://docs.flutter.dev/), which offers tutorials,
-samples, guidance on mobile development, and a full API reference.
+---
