@@ -3,28 +3,41 @@ import 'package:intl/intl.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:image_cropper/image_cropper.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:firebase_core/firebase_core.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:google_sign_in/google_sign_in.dart';
+import 'package:connectivity_plus/connectivity_plus.dart';
 import 'dart:io';
 import 'database_helper.dart';
-
-void main() {
-  WidgetsFlutterBinding.ensureInitialized();
-  runApp(const MaidPocketApp());
-}
 
 class AnimatedCounter extends StatelessWidget {
   final double value;
   final TextStyle style;
   const AnimatedCounter({super.key, required this.value, required this.style});
-
   @override
   Widget build(BuildContext context) {
-    return TweenAnimationBuilder(
+    return TweenAnimationBuilder<double>(
       tween: Tween<double>(begin: 0, end: value),
       duration: const Duration(milliseconds: 1000),
       curve: Curves.easeOutExpo,
-      builder: (context, double val, child) => Text(DatabaseHelper.instance.formatRupiah(val), style: style),
+      builder: (context, double val, child) =>
+          Text(DatabaseHelper.instance.formatRupiah(val), style: style),
     );
   }
+}
+
+void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  await Firebase.initializeApp(
+    options: const FirebaseOptions(
+      apiKey: "ISI_API_KEY_KAMU",
+      appId: "ISI_APP_ID_KAMU",
+      messagingSenderId: "ISI_SENDER_ID_KAMU",
+      projectId: "ISI_PROJECT_ID_KAMU",
+    ),
+  );
+  runApp(const MaidPocketApp());
 }
 
 class MaidPocketApp extends StatelessWidget {
@@ -33,7 +46,10 @@ class MaidPocketApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return MaterialApp(
       debugShowCheckedModeBanner: false,
-      theme: ThemeData(useMaterial3: true, textTheme: GoogleFonts.lexendTextTheme()),
+      theme: ThemeData(
+        useMaterial3: true,
+        textTheme: GoogleFonts.lexendTextTheme(),
+      ),
       home: const HomePage(),
     );
   }
@@ -50,348 +66,1159 @@ class _HomePageState extends State<HomePage> {
   List<Map<String, dynamic>> riwayatTransaksi = [];
   int indexTerpilih = 0;
   bool _hideSaldo = false;
-  
-  final PageController _pageController = PageController(viewportFraction: 0.80);
+  bool _isDarkMode = false;
+  late PageController _pageController;
+
+  GoogleSignInAccount? _currentUser;
+  final GoogleSignIn _googleSignIn = GoogleSignIn();
+  final TextEditingController _nominalController = TextEditingController();
+  final TextEditingController _catatanController = TextEditingController();
 
   @override
   void initState() {
     super.initState();
+    _pageController = PageController(viewportFraction: 0.85);
     _refresh();
+    _googleSignIn.onCurrentUserChanged.listen((account) {
+      setState(() {
+        _currentUser = account;
+      });
+      if (account != null) _autoBackupCloud();
+    });
+    _googleSignIn.signInSilently();
   }
 
   void _refresh() async {
     final data = await DatabaseHelper.instance.ambilSemuaTabungan();
     if (data.isNotEmpty) {
       if (indexTerpilih >= data.length) indexTerpilih = 0;
-      final log = await DatabaseHelper.instance.ambilRiwayat(data[indexTerpilih]['id']);
+      final log = await DatabaseHelper.instance.ambilRiwayat(
+        data[indexTerpilih]['id'],
+      );
       if (!mounted) return;
-      setState(() { daftarKantong = data; riwayatTransaksi = log; });
+      setState(() {
+        daftarKantong = data;
+        riwayatTransaksi = log;
+      });
     } else {
       if (!mounted) return;
-      setState(() { daftarKantong = []; riwayatTransaksi = []; indexTerpilih = 0; });
+      setState(() {
+        daftarKantong = [];
+        riwayatTransaksi = [];
+        indexTerpilih = 0;
+      });
     }
   }
 
-  Color _getMoodColor(Map<String, dynamic> kntg) {
-    double saldo = (kntg['saldo'] ?? 0).toDouble();
-    double lKuning = (kntg['limit_kuning'] ?? 50000).toDouble();
-    double lHijau = (kntg['limit_hijau'] ?? 500000).toDouble();
-    int tema = kntg['tema_id'] ?? 0;
-    
-    List<Color> palet;
-    if (tema == 1) palet = [Colors.pink.shade700, Colors.pink.shade300, Colors.purple.shade200, Colors.deepPurple.shade400]; 
-    else if (tema == 2) palet = [Colors.grey.shade900, Colors.blue.shade900, Colors.cyan.shade700, Colors.teal.shade300]; 
-    else if (tema == 3) palet = [Colors.brown, Colors.orange, Colors.amber, Colors.yellow.shade600]; 
-    else if (tema == 4) palet = [Colors.green.shade900, Colors.green, Colors.lightGreen, Colors.lime]; 
-    else palet = [Colors.red.shade700, Colors.orange, Colors.green, Colors.blue.shade600]; 
-
-    if (saldo <= 0) return palet[0];
-    if (saldo <= lKuning) return palet[1];
-    if (saldo <= lHijau) return palet[2];
-    return palet[3]; 
+  Future<void> _autoBackupCloud() async {
+    if (_currentUser == null) return;
+    final List<ConnectivityResult> connectRes = await Connectivity()
+        .checkConnectivity();
+    if (connectRes.contains(ConnectivityResult.none)) return;
+    final firestore = FirebaseFirestore.instance;
+    final String uid = _currentUser!.id;
+    final lokalKantong = await DatabaseHelper.instance.ambilSemuaTabungan();
+    for (var kntg in lokalKantong) {
+      final String idDompet = kntg['id'].toString();
+      await firestore
+          .collection('users')
+          .doc(uid)
+          .collection('dompet')
+          .doc(idDompet)
+          .set({
+            'nama': kntg['nama'],
+            'saldo': kntg['saldo'],
+            'limit_kuning': kntg['limit_kuning'],
+            'limit_hijau': kntg['limit_hijau'],
+            'tema_id': kntg['tema_id'],
+          });
+      final lokalTrx = await DatabaseHelper.instance.ambilRiwayat(kntg['id']);
+      for (var trx in lokalTrx) {
+        await firestore
+            .collection('users')
+            .doc(uid)
+            .collection('dompet')
+            .doc(idDompet)
+            .collection('transaksi')
+            .doc(trx['id'].toString())
+            .set({
+              'amount': trx['amount'],
+              'notes': trx['notes'],
+              'created_at': trx['created_at'],
+            });
+      }
+    }
   }
 
-  void _tampilkanPilihanBanner(Map<String, dynamic> kntg) {
-    showModalBottomSheet(context: context, isScrollControlled: true, builder: (ctx) => SingleChildScrollView(
-      child: Column(mainAxisSize: MainAxisSize.min, children: [
-        const Padding(padding: EdgeInsets.all(15), child: Text("Edit Dompet", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16))),
-        ExpansionTile(
-          leading: const Icon(Icons.palette),
-          title: const Text("Ganti Tema / Foto"),
-          children: [
-            ListTile(leading: const Icon(Icons.color_lens, size: 20), title: const Text("Default Mood"), onTap: () { DatabaseHelper.instance.updateTema(kntg['id'], 0, null); _refresh(); Navigator.pop(ctx); }),
-            ListTile(leading: const Icon(Icons.spa, size: 20), title: const Text("Sakura Bloom"), onTap: () { DatabaseHelper.instance.updateTema(kntg['id'], 1, null); _refresh(); Navigator.pop(ctx); }),
-            ListTile(leading: const Icon(Icons.nightlight_round, size: 20), title: const Text("Midnight Tech"), onTap: () { DatabaseHelper.instance.updateTema(kntg['id'], 2, null); _refresh(); Navigator.pop(ctx); }),
-            ListTile(leading: const Icon(Icons.wb_sunny, size: 20), title: const Text("Sunset Gold"), onTap: () { DatabaseHelper.instance.updateTema(kntg['id'], 3, null); _refresh(); Navigator.pop(ctx); }),
-            ListTile(leading: const Icon(Icons.forest, size: 20), title: const Text("Forest Life"), onTap: () { DatabaseHelper.instance.updateTema(kntg['id'], 4, null); _refresh(); Navigator.pop(ctx); }),
-            
-            ListTile(leading: const Icon(Icons.image, size: 20), title: const Text("Pilih Foto Galeri"), onTap: () async {
-              final p = await ImagePicker().pickImage(source: ImageSource.gallery);
-              if (p != null) {
-                final croppedFile = await ImageCropper().cropImage(
-                  sourcePath: p.path,
-                  aspectRatio: const CropAspectRatio(ratioX: 16, ratioY: 9),
-                  uiSettings: [
-                    AndroidUiSettings(
-                      toolbarTitle: 'Geser & Sesuaikan',
-                      toolbarColor: Colors.blueAccent,
-                      toolbarWidgetColor: Colors.white,
-                      initAspectRatio: CropAspectRatioPreset.ratio16x9,
-                      lockAspectRatio: false,
-                    ),
-                  ],
-                );
-                
-                if (croppedFile != null) {
-                  await DatabaseHelper.instance.updateTema(kntg['id'], 0, croppedFile.path);
-                  _refresh();
-                }
-              }
-              if (mounted) Navigator.pop(ctx);
-            }),
-          ],
-        ),
-        ListTile(
-          leading: const Icon(Icons.tune),
-          title: const Text("Edit Limit Saldo"),
-          onTap: () { Navigator.pop(ctx); _editLimit(kntg); },
-        ),
-        const Divider(),
-        ListTile(
-          leading: const Icon(Icons.delete_forever, color: Colors.red),
-          title: const Text("Hapus Dompet Ini", style: TextStyle(color: Colors.red)),
-          onTap: () { Navigator.pop(ctx); _konfirmasiHapusDompet(kntg); },
-        ),
-      ]),
-    ));
+  // --- LOGIKA LIMIT & QUOTES 4 FASE ---
+  int _getStatus(double saldo, double lKuning, double lHijau) {
+    if (saldo <= 0) return 0; // Merah
+    if (saldo <= lKuning) return 1; // Kuning
+    if (saldo <= lHijau) return 2; // Hijau
+    return 3; // Biru
   }
 
-  void _editLimit(Map<String, dynamic> kntg) {
-    double k = (kntg['limit_kuning'] ?? 50000).toDouble();
-    double h = (kntg['limit_hijau'] ?? 500000).toDouble();
-    showDialog(context: context, builder: (ctx) => AlertDialog(
-      title: const Text("Edit Limit Mood"),
-      content: SingleChildScrollView(child: Column(mainAxisSize: MainAxisSize.min, children: [
-        TextField(
-          decoration: const InputDecoration(labelText: "Batas Kuning"), 
-          keyboardType: TextInputType.number, 
-          controller: TextEditingController(text: k.toStringAsFixed(0)), 
-          onChanged: (v) {
-            String cleanValue = v.replaceAll('.', '');
-            k = double.tryParse(cleanValue) ?? k;
-          }
-        ),
-        TextField(
-          decoration: const InputDecoration(labelText: "Batas Hijau"), 
-          keyboardType: TextInputType.number, 
-          controller: TextEditingController(text: h.toStringAsFixed(0)), 
-          onChanged: (v) {
-            String cleanValue = v.replaceAll('.', '');
-            h = double.tryParse(cleanValue) ?? h;
-          }
-        ),
-      ])),
-      actions: [ElevatedButton(onPressed: () async {
-        await DatabaseHelper.instance.updateLimit(kntg['id'], k, h);
-        await DatabaseHelper.instance.tambahTransaksi({'tabungan_id': kntg['id'], 'amount': 0.0, 'notes': 'Uhee~ Limit saldo diubah!', 'created_at': DateTime.now().toIso8601String()});
-        _refresh(); Navigator.pop(ctx);
-      }, child: const Text("Simpan"))],
-    ));
+  String _getQuotes(int status) {
+    if (status == 0) return "Uhee~ dompetnya kering banget... 😭";
+    if (status == 1) return "Hati-hati Senpai, saldo menipis! ⚠️";
+    if (status == 2) return "Aman terkendali, pertahankan! 🌿";
+    return "Sultan mode on! Beli kasur baru yuk~ 👑";
   }
 
-  void _konfirmasiHapusDompet(Map<String, dynamic> kntg) {
-    showDialog(context: context, builder: (ctx) => AlertDialog(
-      title: const Text("Hapus Dompet?"),
-      content: Text("Yakin mau hapus dompet '${kntg['nama']}'? Semua riwayat di dompet ini bakal hilang tanpa sisa lho..."),
-      actions: [
-        TextButton(onPressed: () => Navigator.pop(ctx), child: const Text("Batal")),
-        ElevatedButton(style: ElevatedButton.styleFrom(backgroundColor: Colors.red), onPressed: () async {
-          await DatabaseHelper.instance.hapusTabungan(kntg['id']);
-          _refresh(); Navigator.pop(ctx);
-        }, child: const Text("Hapus", style: TextStyle(color: Colors.white))),
-      ],
-    ));
+  IconData _getQuoteIcon(int status) {
+    if (status == 0) return Icons.error_outline;
+    if (status == 1) return Icons.warning_amber_rounded;
+    if (status == 2) return Icons.eco_outlined;
+    return Icons.diamond_outlined;
   }
 
-  void _tambahDompet() {
-    String nama = ""; double k = 50000, h = 500000;
-    showDialog(context: context, builder: (ctx) => AlertDialog(
-      title: const Text("Dompet Baru"),
-      content: SingleChildScrollView(child: Column(mainAxisSize: MainAxisSize.min, children: [
-        TextField(decoration: const InputDecoration(labelText: "Nama Dompet"), onChanged: (v) => nama = v),
-        TextField(
-          decoration: const InputDecoration(labelText: "Batas Kuning (Misal: 50.000)"), 
-          keyboardType: TextInputType.number, 
-          onChanged: (v) {
-            String cleanValue = v.replaceAll('.', '');
-            k = double.tryParse(cleanValue) ?? 50000;
-          }
-        ),
-        TextField(
-          decoration: const InputDecoration(labelText: "Batas Hijau (Misal: 500.000)"), 
-          keyboardType: TextInputType.number, 
-          onChanged: (v) {
-            String cleanValue = v.replaceAll('.', '');
-            h = double.tryParse(cleanValue) ?? 500000;
-          }
-        ),
-      ])),
-      actions: [ElevatedButton(onPressed: () async {
-        if (nama.isNotEmpty) {
-          await DatabaseHelper.instance.tambahTabungan({'nama': nama, 'saldo': 0.0, 'limit_kuning': k, 'limit_hijau': h, 'tema_id': 0});
-          _refresh(); Navigator.pop(ctx);
-        }
-      }, child: const Text("Buat"))],
-    ));
-  }
-
-  void _tambahTransaksi(String tipe) {
-    if (daftarKantong.isEmpty) return;
-    double nom = 0; String ket = "";
-    showModalBottomSheet(context: context, isScrollControlled: true, builder: (ctx) => Padding(
-      padding: EdgeInsets.only(bottom: MediaQuery.of(ctx).viewInsets.bottom, left: 20, right: 20, top: 20),
-      child: Column(mainAxisSize: MainAxisSize.min, children: [
-        Text("Input $tipe", style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
-        TextField(
-          decoration: const InputDecoration(labelText: "Jumlah Nominal (Rp)"), 
-          keyboardType: TextInputType.number, 
-          onChanged: (v) {
-            String cleanValue = v.replaceAll('.', '');
-            nom = double.tryParse(cleanValue) ?? 0;
-          }
-        ),
-        TextField(decoration: const InputDecoration(labelText: "Catatan (Beli apa/Dari mana)"), onChanged: (v) => ket = v),
-        const SizedBox(height: 20),
-        ElevatedButton(
-          style: ElevatedButton.styleFrom(minimumSize: const Size(double.infinity, 50)),
-          onPressed: () async {
-            if (nom > 0) {
-              await DatabaseHelper.instance.tambahTransaksi({'tabungan_id': daftarKantong[indexTerpilih]['id'], 'amount': tipe == 'Masuk' ? nom : -nom, 'notes': ket, 'created_at': DateTime.now().toIso8601String()});
-              await DatabaseHelper.instance.updateSaldo(daftarKantong[indexTerpilih]['id'], daftarKantong[indexTerpilih]['saldo'] + (tipe == 'Masuk' ? nom : -nom));
-              _refresh(); Navigator.pop(ctx);
-            }
-          }, child: const Text("Simpan")
-        ),
-        const SizedBox(height: 20),
-      ]),
-    ));
-  }
-
-  void _konfirmasiHapus(Map<String, dynamic> trx) {
-    showDialog(context: context, builder: (ctx) => AlertDialog(
-      title: const Text("Hapus Riwayat?"),
-      content: const Text("Uhee~ Senpai beneran mau hapus catatan ini? Nanti saldonya Ojisan balikin kayak semula lho..."),
-      actions: [
-        TextButton(onPressed: () => Navigator.pop(ctx), child: const Text("Gak jadi", style: TextStyle(color: Colors.grey))),
-        ElevatedButton(
-          style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
-          onPressed: () async {
-            await DatabaseHelper.instance.hapusTransaksi(trx['id']);
-            double saldoSekarang = daftarKantong[indexTerpilih]['saldo'];
-            await DatabaseHelper.instance.updateSaldo(daftarKantong[indexTerpilih]['id'], saldoSekarang - trx['amount']);
-            _refresh();
-            if(mounted) Navigator.pop(ctx);
-          }, 
-          child: const Text("Hapus", style: TextStyle(color: Colors.white))
-        )
-      ]
-    ));
+  List<Color> _getAdaptiveGradient(int status, int tema) {
+    if (_isDarkMode) {
+      // 🎨 TEMA 0: Default Mood (Merah - Kuning - Hijau - Biru)
+      if (tema == 0) {
+        return [
+          [const Color(0xFFFF5252), const Color(0xFFD50000)],
+          [const Color(0xFFFFD740), const Color(0xFFFFAB00)],
+          [const Color(0xFF69F0AE), const Color(0xFF00E676)],
+          [const Color(0xFF40C4FF), const Color(0xFF0091EA)],
+        ][status];
+        // 🌸 TEMA 1: Sakura Mood (Gelap/Layu -> Pink Cerah -> Neon)
+      }
+      if (tema == 1) {
+        return [
+          [const Color(0xFF4A148C), const Color(0xFF311B92)],
+          [const Color(0xFF880E4F), const Color(0xFF4A148C)],
+          [const Color(0xFFC2185B), const Color(0xFF7B1FA2)],
+          [const Color(0xFFFF4081), const Color(0xFFE040FB)],
+        ][status];
+        // 🌊 TEMA 2: Ocean Mood (Laut Dalam -> Permukaan Cerah)
+      }
+      if (tema == 2) {
+        return [
+          [const Color(0xFF00102A), const Color(0xFF001F4D)],
+          [const Color(0xFF003C8F), const Color(0xFF005CB2)],
+          [const Color(0xFF1976D2), const Color(0xFF1E88E5)],
+          [const Color(0xFF448AFF), const Color(0xFF40C4FF)],
+        ][status];
+        // 🍂 TEMA 3: Autumn Mood (Coklat Gelap -> Daun Gugur -> Emas)
+      }
+      if (tema == 3) {
+        return [
+          [const Color(0xFF3E2723), const Color(0xFF4E342E)],
+          [const Color(0xFFBF360C), const Color(0xFFD84315)],
+          [const Color(0xFFE64A19), const Color(0xFFF4511E)],
+          [const Color(0xFFFF6D00), const Color(0xFFFF9100)],
+        ][status];
+        // 🌲 TEMA 4: Forest Mood (Rawa Gelap -> Hutan Hijau -> Lime)
+      }
+      if (tema == 4) {
+        return [
+          [const Color(0xFF1B5E20), const Color(0xFF004D40)],
+          [const Color(0xFF2E7D32), const Color(0xFF00695C)],
+          [const Color(0xFF43A047), const Color(0xFF00897B)],
+          [const Color(0xFF00E676), const Color(0xFF1DE9B6)],
+        ][status];
+        // 🔮 TEMA 5: Amethyst Mood (Ungu Pekat -> Magenta Terang)
+      }
+      if (tema == 5) {
+        return [
+          [const Color(0xFF1A237E), const Color(0xFF12185B)],
+          [const Color(0xFF311B92), const Color(0xFF1A237E)],
+          [const Color(0xFF5E35B1), const Color(0xFF3949AB)],
+          [const Color(0xFFAA00FF), const Color(0xFF536DFE)],
+        ][status];
+      }
+    } else {
+      // 🎨 LIGHT MODE TRANSISI
+      if (tema == 0) {
+        return [
+          [Colors.red.shade300, Colors.red.shade600],
+          [Colors.orange.shade300, Colors.orange.shade600],
+          [Colors.green.shade400, Colors.green.shade600],
+          [Colors.blue.shade300, Colors.blue.shade600],
+        ][status];
+      }
+      if (tema == 1) {
+        return [
+          [Colors.pink.shade900, Colors.purple.shade900],
+          [Colors.pink.shade700, Colors.purple.shade700],
+          [Colors.pink.shade400, Colors.purple.shade400],
+          [Colors.pinkAccent.shade100, Colors.purpleAccent.shade100],
+        ][status];
+      }
+      if (tema == 2) {
+        return [
+          [Colors.indigo.shade900, Colors.blue.shade900],
+          [Colors.indigo.shade600, Colors.blue.shade700],
+          [Colors.blue.shade400, Colors.cyan.shade600],
+          [Colors.lightBlueAccent.shade100, Colors.cyanAccent.shade200],
+        ][status];
+      }
+      if (tema == 3) {
+        return [
+          [Colors.brown.shade800, Colors.deepOrange.shade900],
+          [Colors.deepOrange.shade600, Colors.orange.shade700],
+          [Colors.orange.shade400, Colors.amber.shade600],
+          [Colors.amberAccent.shade200, Colors.yellowAccent.shade200],
+        ][status];
+      }
+      if (tema == 4) {
+        return [
+          [Colors.green.shade900, Colors.teal.shade900],
+          [Colors.green.shade700, Colors.teal.shade700],
+          [Colors.green.shade400, Colors.teal.shade400],
+          [Colors.lightGreenAccent.shade200, Colors.tealAccent.shade200],
+        ][status];
+      }
+      if (tema == 5) {
+        return [
+          [Colors.deepPurple.shade900, Colors.indigo.shade900],
+          [Colors.deepPurple.shade600, Colors.indigo.shade700],
+          [Colors.purple.shade400, Colors.deepPurple.shade400],
+          [Colors.purpleAccent.shade100, Colors.deepPurpleAccent.shade100],
+        ][status];
+      }
+    }
+    return [Colors.grey, Colors.blueGrey];
   }
 
   @override
   Widget build(BuildContext context) {
+    final Color currentBg = _isDarkMode
+        ? const Color(0xFF121212)
+        : const Color(0xFFF8F9FA);
+    final Color txtCol = _isDarkMode ? Colors.white : Colors.black87;
+    final Color cardCol = _isDarkMode ? const Color(0xFF1E1E1E) : Colors.white;
+
     return Scaffold(
-      backgroundColor: const Color(0xFFF5F5F5),
+      backgroundColor: currentBg,
       appBar: AppBar(
-        title: const Text("MaidPocket", style: TextStyle(fontWeight: FontWeight.bold)), 
-        backgroundColor: Colors.transparent, elevation: 0,
-        actions: [
-          IconButton(
-            onPressed: () => ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Uhee~ Fitur Dark Mode & Analitik grafik nyusul di V.2 ya! Sabar!"))), 
-            icon: const Icon(Icons.settings, color: Colors.grey)
+        title: Text(
+          "MaidPocket",
+          style: TextStyle(
+            fontWeight: FontWeight.bold,
+            color: txtCol,
+            fontSize: 20,
           ),
+        ),
+        backgroundColor: Colors.transparent,
+        elevation: 0,
+        iconTheme: IconThemeData(color: txtCol),
+        actions: [
+          _buildThemeToggle(),
           IconButton(
-            onPressed: _tambahDompet, 
-            icon: const Icon(Icons.add_circle, size: 30, color: Colors.blueAccent)
+            onPressed: _tambahDompet,
+            icon: Icon(
+              Icons.add_circle_outline,
+              color: _isDarkMode ? Colors.blueAccent : Colors.blue,
+            ),
           ),
           const SizedBox(width: 8),
-        ]
+        ],
       ),
-      body: daftarKantong.isEmpty ? Center(
-        child: InkWell(
-          onTap: _tambahDompet,
-          child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
-            decoration: BoxDecoration(color: Colors.blue.withAlpha(30), borderRadius: BorderRadius.circular(20)),
-            child: const Text("Uhee~ belum ada dompet nih... ayo bikin sekarang!", style: TextStyle(color: Colors.blue, fontWeight: FontWeight.bold)),
-          ),
-        )
-      ) : Column(children: [
-        SizedBox(height: 230, child: PageView.builder(
-          controller: _pageController,
-          itemCount: daftarKantong.length,
-          onPageChanged: (i) => setState(() { indexTerpilih = i; _refresh(); }),
-          itemBuilder: (ctx, i) {
-            var kntg = daftarKantong[i];
-            Color mood = _getMoodColor(kntg);
-            
-            return AnimatedBuilder(
-              animation: _pageController,
-              builder: (context, child) {
-                double value = 1.0;
-                if (_pageController.position.haveDimensions) {
-                  value = _pageController.page! - i;
-                  value = (1 - (value.abs() * 0.1)).clamp(0.0, 1.0);
-                }
-                return Transform.scale(
-                  scale: value,
-                  child: Opacity(opacity: value.clamp(0.4, 1.0), child: child),
-                );
-              },
-              child: Container(
-                margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 15),
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(30), 
-                  gradient: LinearGradient(colors: [mood, mood.withAlpha(150)]), 
-                  image: kntg['banner_path'] != null ? DecorationImage(image: FileImage(File(kntg['banner_path'])), fit: BoxFit.cover) : null
-                ),
-                child: Container(
-                  padding: const EdgeInsets.all(25),
-                  decoration: BoxDecoration(borderRadius: BorderRadius.circular(30), color: Colors.black.withAlpha(kntg['banner_path'] != null ? 80 : 0)),
-                  child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                    Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
-                      Text(kntg['nama'].toUpperCase(), style: const TextStyle(color: Colors.white, letterSpacing: 1.5, fontSize: 12)),
-                      IconButton(onPressed: () => _tampilkanPilihanBanner(kntg), icon: const Icon(Icons.edit_note, color: Colors.white)),
-                    ]),
-                    const SizedBox(height: 10),
-                    Row(children: [
-                      _hideSaldo ? const Text("Rp ••••••••", style: TextStyle(color: Colors.white, fontSize: 28, fontWeight: FontWeight.bold)) 
-                      : AnimatedCounter(value: (kntg['saldo'] ?? 0).toDouble(), style: const TextStyle(color: Colors.white, fontSize: 28, fontWeight: FontWeight.bold)),
-                      IconButton(onPressed: () => setState(() => _hideSaldo = !_hideSaldo), icon: Icon(_hideSaldo ? Icons.visibility_off : Icons.visibility, color: Colors.white70, size: 20)),
-                    ]),
-                    const Spacer(),
-                    Text((kntg['saldo'] ?? 0) <= 0 ? "uhee~ kering bgt dompetnya..." : "Masih aman, Senpai!", style: const TextStyle(color: Colors.white, fontStyle: FontStyle.italic, fontSize: 11)),
-                  ]),
-                ),
-              )
-            );
-          },
-        )),
-        Row(mainAxisAlignment: MainAxisAlignment.spaceEvenly, children: [
-          _btn("Masuk", Icons.add, Colors.green, () => _tambahTransaksi("Masuk")),
-          _btn("Keluar", Icons.remove, Colors.red, () => _tambahTransaksi("Keluar")),
-        ]),
-        const Padding(padding: EdgeInsets.all(20), child: Align(alignment: Alignment.centerLeft, child: Text("Riwayat", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)))),
-        Expanded(child: ListView.builder(
-          itemCount: riwayatTransaksi.length,
-          itemBuilder: (ctx, i) {
-            var trx = riwayatTransaksi[i]; bool inc = trx['amount'] >= 0;
-            bool isSistem = trx['amount'] == 0; 
-
-            return ListTile(
-              leading: CircleAvatar(
-                backgroundColor: isSistem ? Colors.blue.withAlpha(30) : (inc ? Colors.green.withAlpha(30) : Colors.red.withAlpha(30)), 
-                child: Icon(
-                  isSistem ? Icons.info_outline : (inc ? Icons.add : Icons.remove), 
-                  color: isSistem ? Colors.blue : (inc ? Colors.green : Colors.red), 
-                  size: 18
-                )
-              ),
-              title: Text(trx['notes'] == "" ? (inc ? "Masuk" : "Keluar") : trx['notes'], style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
-              subtitle: Text(DateFormat('HH:mm').format(DateTime.parse(trx['created_at']))),
-              trailing: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  if (!isSistem) Text(DatabaseHelper.instance.formatRupiah(trx['amount'].abs()), style: TextStyle(color: inc ? Colors.green : Colors.red, fontWeight: FontWeight.bold)),
-                  IconButton(icon: const Icon(Icons.delete_outline, size: 20, color: Colors.grey), onPressed: () => _konfirmasiHapus(trx))
-                ]
-              ),
-            );
-          },
-        )),
-      ]),
+      drawer: _buildModernDrawer(txtCol, cardCol),
+      body: daftarKantong.isEmpty
+          ? _buildEmptyState(txtCol)
+          : Column(
+              children: [
+                _buildWalletSlider(),
+                _buildActionButtons(txtCol),
+                const SizedBox(height: 10),
+                _buildRiwayatHeader(txtCol),
+                _buildRiwayatList(txtCol, cardCol),
+              ],
+            ),
     );
   }
 
-  Widget _btn(String t, IconData i, Color c, VoidCallback o) => InkWell(onTap: o, child: Column(children: [CircleAvatar(backgroundColor: Colors.white, child: Icon(i, color: c)), const SizedBox(height: 5), Text(t, style: const TextStyle(fontSize: 12))]));
+  // --- DRAWER DENGAN TEKS ANTI-HILANG ---
+  Widget _buildModernDrawer(Color txtCol, Color cardCol) {
+    return Drawer(
+      backgroundColor: cardCol,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.horizontal(right: Radius.circular(30)),
+      ),
+      child: Column(
+        children: [
+          Container(
+            padding: const EdgeInsets.fromLTRB(20, 60, 20, 30),
+            width: double.infinity,
+            decoration: BoxDecoration(
+              color: _isDarkMode
+                  ? Colors.white.withValues(alpha: 0.05)
+                  : Colors.blueAccent.withValues(alpha: 0.1),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                CircleAvatar(
+                  radius: 35,
+                  backgroundColor: Colors.blueAccent,
+                  backgroundImage: _currentUser?.photoUrl != null
+                      ? NetworkImage(_currentUser!.photoUrl!)
+                      : null,
+                  child: _currentUser == null
+                      ? const Icon(Icons.person, size: 40, color: Colors.white)
+                      : null,
+                ),
+                const SizedBox(height: 15),
+                Text(
+                  _currentUser?.displayName ?? "User Offline",
+                  style: TextStyle(
+                    fontWeight: FontWeight.bold,
+                    fontSize: 18,
+                    color: txtCol,
+                  ),
+                ),
+                Text(
+                  _currentUser?.email ?? "Sinkronkan data ke Cloud",
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: txtCol.withValues(alpha: 0.8),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 10),
+          _drawerItem(
+            Icons.cloud_sync,
+            "Auto-Backup Status",
+            _currentUser != null ? "Aktif" : "Nonaktif (Login Required)",
+            Colors.green,
+            txtCol,
+          ),
+          ListTile(
+            leading: const Icon(Icons.security, color: Colors.orange),
+            title: Text(
+              "Data Privacy",
+              style: TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.bold,
+                color: txtCol,
+              ),
+            ),
+            subtitle: Text(
+              _hideSaldo
+                  ? "Aktif (Saldo Disensor)"
+                  : "Nonaktif (Saldo Terlihat)",
+              style: TextStyle(
+                fontSize: 11,
+                color: txtCol.withValues(alpha: 0.7),
+              ),
+            ),
+            trailing: Switch(
+              value: _hideSaldo,
+              activeThumbColor: Colors.orange,
+              onChanged: (val) => setState(() => _hideSaldo = val),
+            ),
+          ),
+          const Spacer(),
+          Padding(
+            padding: const EdgeInsets.all(20),
+            child: ElevatedButton.icon(
+              style: ElevatedButton.styleFrom(
+                minimumSize: const Size(double.infinity, 50),
+                backgroundColor: _currentUser == null
+                    ? Colors.green
+                    : Colors.redAccent,
+                foregroundColor: Colors.white,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(15),
+                ),
+              ),
+              onPressed: () {
+                Navigator.pop(context);
+                _currentUser == null
+                    ? _googleSignIn.signIn()
+                    : _googleSignIn.disconnect();
+              },
+              icon: Icon(_currentUser == null ? Icons.login : Icons.logout),
+              label: Text(
+                _currentUser == null ? "Hubungkan ke Google" : "Putuskan Akun",
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _drawerItem(IconData i, String t, String sub, Color c, Color txtCol) =>
+      ListTile(
+        leading: Icon(i, color: c),
+        title: Text(
+          t,
+          style: TextStyle(
+            fontSize: 14,
+            fontWeight: FontWeight.bold,
+            color: txtCol,
+          ),
+        ),
+        subtitle: Text(
+          sub,
+          style: TextStyle(fontSize: 11, color: txtCol.withValues(alpha: 0.7)),
+        ),
+      );
+
+  Widget _buildThemeToggle() => GestureDetector(
+    onTap: () => setState(() => _isDarkMode = !_isDarkMode),
+    child: AnimatedContainer(
+      duration: const Duration(milliseconds: 300),
+      width: 60,
+      height: 30,
+      padding: const EdgeInsets.all(4),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(20),
+        color: _isDarkMode ? Colors.blueGrey.shade900 : Colors.grey.shade300,
+      ),
+      child: AnimatedAlign(
+        duration: const Duration(milliseconds: 300),
+        alignment: _isDarkMode ? Alignment.centerRight : Alignment.centerLeft,
+        child: Container(
+          width: 22,
+          height: 22,
+          decoration: const BoxDecoration(
+            shape: BoxShape.circle,
+            color: Colors.white,
+          ),
+          child: Icon(
+            _isDarkMode ? Icons.nightlight_round : Icons.wb_sunny,
+            size: 12,
+            color: _isDarkMode ? Colors.black : Colors.orange,
+          ),
+        ),
+      ),
+    ),
+  );
+
+  Widget _buildWalletSlider() => SizedBox(
+    height: 220,
+    child: PageView.builder(
+      controller: _pageController,
+      itemCount: daftarKantong.length,
+      onPageChanged: (i) => setState(() {
+        indexTerpilih = i;
+        _refresh();
+      }),
+      itemBuilder: (ctx, i) {
+        var kntg = daftarKantong[i];
+        int status = _getStatus(
+          (kntg['saldo'] ?? 0).toDouble(),
+          (kntg['limit_kuning'] ?? 50000).toDouble(),
+          (kntg['limit_hijau'] ?? 500000).toDouble(),
+        );
+        List<Color> grad = _getAdaptiveGradient(status, kntg['tema_id'] ?? 0);
+
+        return AnimatedContainer(
+          duration: const Duration(milliseconds: 500),
+          margin: const EdgeInsets.symmetric(horizontal: 10, vertical: 15),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(25),
+            gradient: LinearGradient(
+              colors: grad,
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+            ),
+            boxShadow: [
+              BoxShadow(
+                color: grad[0].withValues(alpha: 0.4),
+                blurRadius: 15,
+                offset: const Offset(0, 5),
+              ),
+            ],
+            image: kntg['banner_path'] != null
+                ? DecorationImage(
+                    image: FileImage(File(kntg['banner_path'])),
+                    fit: BoxFit.cover,
+                  )
+                : null,
+          ),
+          child: Container(
+            padding: const EdgeInsets.all(20),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(25),
+              color: Colors.black.withValues(
+                alpha: kntg['banner_path'] != null ? 0.5 : 0.1,
+              ),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text(
+                      kntg['nama'].toUpperCase(),
+                      style: const TextStyle(
+                        color: Colors.white,
+                        letterSpacing: 1.5,
+                        fontSize: 14,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    IconButton(
+                      // TOMBOL EDIT DOMPET
+                      padding: EdgeInsets.zero,
+                      constraints: const BoxConstraints(),
+                      icon: const Icon(
+                        Icons.edit_note,
+                        color: Colors.white,
+                        size: 28,
+                      ),
+                      onPressed: () => _tampilkanPilihanBanner(kntg),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 10),
+                Row(
+                  children: [
+                    _hideSaldo
+                        ? const Text(
+                            "Rp ••••••••",
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontSize: 26,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          )
+                        : AnimatedCounter(
+                            value: (kntg['saldo'] ?? 0).toDouble(),
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 26,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                  ],
+                ),
+                const Spacer(),
+                Row(
+                  children: [
+                    Icon(_getQuoteIcon(status), color: Colors.white, size: 16),
+                    const SizedBox(width: 6),
+                    Expanded(
+                      child: Text(
+                        _getQuotes(status),
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 12,
+                          fontStyle: FontStyle.italic,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    ),
+  );
+
+  Widget _buildActionButtons(Color txtCol) => Row(
+    mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+    children: [
+      _btnAction(
+        "Masuk",
+        Icons.add,
+        Colors.green,
+        () => _inputTransaksi(tipe: "Masuk"),
+        txtCol,
+      ),
+      _btnAction(
+        "Keluar",
+        Icons.remove,
+        Colors.red,
+        () => _inputTransaksi(tipe: "Keluar"),
+        txtCol,
+      ),
+    ],
+  );
+
+  Widget _btnAction(
+    String t,
+    IconData i,
+    Color c,
+    VoidCallback o,
+    Color txtCol,
+  ) => InkWell(
+    onTap: o,
+    child: Column(
+      children: [
+        Container(
+          padding: const EdgeInsets.all(15),
+          decoration: BoxDecoration(
+            color: c.withValues(alpha: 0.15),
+            shape: BoxShape.circle,
+          ),
+          child: Icon(i, color: c, size: 28),
+        ),
+        const SizedBox(height: 8),
+        Text(
+          t,
+          style: TextStyle(
+            fontSize: 12,
+            fontWeight: FontWeight.bold,
+            color: txtCol,
+          ),
+        ),
+      ],
+    ),
+  );
+
+  Widget _buildRiwayatHeader(Color txtCol) => Column(
+    children: [
+      Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 20),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Text(
+              "Riwayat Terkini",
+              style: TextStyle(
+                fontWeight: FontWeight.bold,
+                fontSize: 16,
+                color: txtCol,
+              ),
+            ),
+            Icon(Icons.history, size: 18, color: txtCol.withValues(alpha: 0.6)),
+          ],
+        ),
+      ),
+      const SizedBox(height: 10),
+      Container(
+        height: 1,
+        color: txtCol.withValues(alpha: 0.1),
+        margin: const EdgeInsets.symmetric(horizontal: 20),
+      ), // PEMBATAS VISUAL
+      const SizedBox(height: 5),
+    ],
+  );
+
+  Widget _buildRiwayatList(Color txtCol, Color cardCol) => Expanded(
+    child: ListView.builder(
+      itemCount: riwayatTransaksi.length,
+      itemBuilder: (ctx, i) {
+        var trx = riwayatTransaksi[i];
+        bool inc = trx['amount'] >= 0;
+        return Dismissible(
+          key: Key(trx['id'].toString()),
+          background: Container(
+            color: Colors.red,
+            alignment: Alignment.centerRight,
+            padding: const EdgeInsets.only(right: 20),
+            child: const Icon(Icons.delete, color: Colors.white),
+          ),
+          direction: DismissDirection.endToStart,
+          onDismissed: (dir) => _hapusTrx(trx),
+          child: Container(
+            margin: const EdgeInsets.symmetric(horizontal: 15, vertical: 6),
+            decoration: BoxDecoration(
+              color: cardCol,
+              borderRadius: BorderRadius.circular(15),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.05),
+                  blurRadius: 4,
+                ),
+              ],
+            ),
+            child: ListTile(
+              onTap: () => _inputTransaksi(dataLama: trx),
+              leading: CircleAvatar(
+                backgroundColor: (inc ? Colors.green : Colors.red).withValues(
+                  alpha: 0.1,
+                ),
+                child: Icon(
+                  inc ? Icons.add : Icons.remove,
+                  color: inc ? Colors.green : Colors.red,
+                  size: 16,
+                ),
+              ),
+              title: Text(
+                trx['notes'] == ""
+                    ? (inc ? "Pemasukan" : "Pengeluaran")
+                    : trx['notes'],
+                style: TextStyle(
+                  fontWeight: FontWeight.bold,
+                  fontSize: 14,
+                  color: txtCol,
+                ),
+              ),
+              subtitle: Text(
+                DateFormat(
+                  'dd MMM, HH:mm',
+                ).format(DateTime.parse(trx['created_at'])),
+                style: TextStyle(
+                  fontSize: 11,
+                  color: txtCol.withValues(alpha: 0.6),
+                ),
+              ),
+              trailing: Text(
+                DatabaseHelper.instance.formatRupiah(trx['amount'].abs()),
+                style: TextStyle(
+                  color: inc ? Colors.green : Colors.red,
+                  fontWeight: FontWeight.bold,
+                  fontSize: 14,
+                ),
+              ),
+            ),
+          ),
+        );
+      },
+    ),
+  );
+
+  Widget _buildEmptyState(Color txtCol) => Center(
+    child: Column(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        const Icon(Icons.account_balance_wallet, size: 80, color: Colors.grey),
+        const SizedBox(height: 10),
+        Text(
+          "Uhee~ dompetnya masih kosong, Senpai!",
+          style: TextStyle(color: txtCol.withValues(alpha: 0.6)),
+        ),
+      ],
+    ),
+  );
+
+  void _hapusTrx(Map<String, dynamic> trx) async {
+    await DatabaseHelper.instance.hapusTransaksi(trx['id']);
+    await DatabaseHelper.instance.updateSaldo(
+      daftarKantong[indexTerpilih]['id'],
+      daftarKantong[indexTerpilih]['saldo'] - trx['amount'],
+    );
+    _refresh();
+  }
+
+  void _inputTransaksi({Map<String, dynamic>? dataLama, String? tipe}) {
+    double nom = dataLama != null ? dataLama['amount'].abs() : 0;
+    _nominalController.text = nom == 0 ? "" : nom.toStringAsFixed(0);
+    _catatanController.text = dataLama?['notes'] ?? "";
+    DateTime tgl = dataLama != null
+        ? DateTime.parse(dataLama['created_at'])
+        : DateTime.now();
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: _isDarkMode ? const Color(0xFF1E1E1E) : Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(25)),
+      ),
+      builder: (ctx) => Padding(
+        padding: EdgeInsets.only(
+          bottom: MediaQuery.of(ctx).viewInsets.bottom,
+          left: 25,
+          right: 25,
+          top: 25,
+        ),
+        child: StatefulBuilder(
+          builder: (ctx, setModal) => Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                dataLama != null ? "Edit Transaksi" : "Tambah $tipe",
+                style: TextStyle(
+                  fontWeight: FontWeight.bold,
+                  fontSize: 18,
+                  color: _isDarkMode ? Colors.white : Colors.black,
+                ),
+              ),
+              const SizedBox(height: 15),
+              TextField(
+                controller: _nominalController,
+                keyboardType: TextInputType.number,
+                style: TextStyle(
+                  color: _isDarkMode ? Colors.white : Colors.black,
+                ),
+                decoration: InputDecoration(
+                  labelText: "Nominal (Rp)",
+                  border: const OutlineInputBorder(),
+                  labelStyle: TextStyle(
+                    color: _isDarkMode ? Colors.white70 : Colors.black54,
+                  ),
+                ),
+              ),
+              const SizedBox(height: 10),
+              TextField(
+                controller: _catatanController,
+                style: TextStyle(
+                  color: _isDarkMode ? Colors.white : Colors.black,
+                ),
+                decoration: InputDecoration(
+                  labelText: "Catatan",
+                  border: const OutlineInputBorder(),
+                  labelStyle: TextStyle(
+                    color: _isDarkMode ? Colors.white70 : Colors.black54,
+                  ),
+                ),
+              ),
+              ListTile(
+                leading: Icon(
+                  Icons.calendar_month,
+                  color: _isDarkMode ? Colors.white70 : Colors.black54,
+                ),
+                title: Text(
+                  DateFormat('dd MMMM yyyy').format(tgl),
+                  style: TextStyle(
+                    color: _isDarkMode ? Colors.white : Colors.black,
+                  ),
+                ),
+                onTap: () async {
+                  final d = await showDatePicker(
+                    context: context,
+                    initialDate: tgl,
+                    firstDate: DateTime(2020),
+                    lastDate: DateTime.now(),
+                  );
+                  if (d != null) setModal(() => tgl = d);
+                },
+              ),
+              const SizedBox(height: 15),
+              ElevatedButton(
+                style: ElevatedButton.styleFrom(
+                  minimumSize: const Size(double.infinity, 50),
+                  backgroundColor: Colors.blueAccent,
+                  foregroundColor: Colors.white,
+                ),
+                onPressed: () async {
+                  double n = double.tryParse(_nominalController.text) ?? 0;
+                  if (n > 0) {
+                    if (dataLama == null) {
+                      await DatabaseHelper.instance.tambahTransaksi({
+                        'tabungan_id': daftarKantong[indexTerpilih]['id'],
+                        'amount': tipe == 'Masuk' ? n : -n,
+                        'notes': _catatanController.text,
+                        'created_at': tgl.toIso8601String(),
+                      });
+                      await DatabaseHelper.instance.updateSaldo(
+                        daftarKantong[indexTerpilih]['id'],
+                        daftarKantong[indexTerpilih]['saldo'] +
+                            (tipe == 'Masuk' ? n : -n),
+                      );
+                    } else {
+                      double diff =
+                          (dataLama['amount'] >= 0 ? n : -n) -
+                          dataLama['amount'];
+                      await DatabaseHelper.instance.updateTransaksi(
+                        dataLama['id'],
+                        dataLama['amount'] >= 0 ? n : -n,
+                        _catatanController.text,
+                        tgl.toIso8601String(),
+                      );
+                      await DatabaseHelper.instance.updateSaldo(
+                        daftarKantong[indexTerpilih]['id'],
+                        daftarKantong[indexTerpilih]['saldo'] + diff,
+                      );
+                    }
+                    _refresh();
+                    if (!ctx.mounted) return;
+                    Navigator.pop(ctx);
+                  }
+                },
+                child: const Text("Simpan Transaksi"),
+              ),
+              if (dataLama != null) ...[
+                // TOMBOL HAPUS EKSPLISIT
+                const SizedBox(height: 10),
+                ElevatedButton(
+                  style: ElevatedButton.styleFrom(
+                    minimumSize: const Size(double.infinity, 50),
+                    backgroundColor: Colors.red.withValues(alpha: 0.1),
+                    foregroundColor: Colors.red,
+                    elevation: 0,
+                  ),
+                  onPressed: () {
+                    _hapusTrx(dataLama);
+                    Navigator.pop(ctx);
+                  },
+                  child: const Text(
+                    "Hapus Transaksi",
+                    style: TextStyle(fontWeight: FontWeight.bold),
+                  ),
+                ),
+              ],
+              const SizedBox(height: 30),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _tampilkanPilihanBanner(Map<String, dynamic> kntg) {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: _isDarkMode ? const Color(0xFF1E1E1E) : Colors.white,
+      builder: (ctx) => Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          ListTile(
+            leading: Icon(
+              Icons.palette,
+              color: _isDarkMode ? Colors.white : Colors.black,
+            ),
+            title: Text(
+              "Ganti Mood Dompet",
+              style: TextStyle(
+                color: _isDarkMode ? Colors.white : Colors.black,
+              ),
+            ),
+            onTap: () {
+              Navigator.pop(ctx);
+              _pilihTema(kntg);
+            },
+          ),
+          ListTile(
+            leading: Icon(
+              Icons.tune,
+              color: _isDarkMode ? Colors.white : Colors.black,
+            ),
+            title: Text(
+              "Edit Limit Saldo",
+              style: TextStyle(
+                color: _isDarkMode ? Colors.white : Colors.black,
+              ),
+            ),
+            onTap: () {
+              Navigator.pop(ctx);
+              _editLimit(kntg);
+            },
+          ),
+          ListTile(
+            leading: Icon(
+              Icons.image,
+              color: _isDarkMode ? Colors.white : Colors.black,
+            ),
+            title: Text(
+              "Custom Banner Galeri",
+              style: TextStyle(
+                color: _isDarkMode ? Colors.white : Colors.black,
+              ),
+            ),
+            onTap: () {
+              Navigator.pop(ctx);
+              _handleImagePick(kntg);
+            },
+          ),
+          ListTile(
+            leading: const Icon(Icons.delete, color: Colors.red),
+            title: const Text(
+              "Hapus Dompet",
+              style: TextStyle(color: Colors.red),
+            ),
+            onTap: () {
+              Navigator.pop(ctx);
+              _konfirmasiHapusDompet(kntg);
+            },
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _editLimit(Map<String, dynamic> kntg) {
+    double kun = (kntg['limit_kuning'] ?? 50000).toDouble();
+    double hij = (kntg['limit_hijau'] ?? 500000).toDouble();
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: _isDarkMode ? const Color(0xFF1E1E1E) : Colors.white,
+        title: Text(
+          "Edit Limit Mood",
+          style: TextStyle(color: _isDarkMode ? Colors.white : Colors.black),
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              decoration: InputDecoration(
+                labelText: "Batas Kuning",
+                labelStyle: TextStyle(
+                  color: _isDarkMode ? Colors.white70 : Colors.black54,
+                ),
+              ),
+              style: TextStyle(
+                color: _isDarkMode ? Colors.white : Colors.black,
+              ),
+              keyboardType: TextInputType.number,
+              controller: TextEditingController(text: kun.toStringAsFixed(0)),
+              onChanged: (v) => kun = double.tryParse(v) ?? kun,
+            ),
+            TextField(
+              decoration: InputDecoration(
+                labelText: "Batas Hijau",
+                labelStyle: TextStyle(
+                  color: _isDarkMode ? Colors.white70 : Colors.black54,
+                ),
+              ),
+              style: TextStyle(
+                color: _isDarkMode ? Colors.white : Colors.black,
+              ),
+              keyboardType: TextInputType.number,
+              controller: TextEditingController(text: hij.toStringAsFixed(0)),
+              onChanged: (v) => hij = double.tryParse(v) ?? hij,
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () async {
+              await DatabaseHelper.instance.updateLimit(kntg['id'], kun, hij);
+              _refresh();
+              if (!ctx.mounted) return;
+              Navigator.pop(ctx);
+            },
+            child: const Text("Simpan"),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _pilihTema(Map<String, dynamic> kntg) {
+    final listTema = [
+      {"icon": Icons.circle, "name": "🎨 Default Mood", "color": Colors.blueAccent},
+      {"icon": Icons.spa, "name": "🌸 Sakura Mood", "color": Colors.pinkAccent},
+      {"icon": Icons.water_drop, "name": "🌊 Ocean Mood", "color": Colors.lightBlue},
+      {"icon": Icons.park, "name": "🍂 Autumn Mood", "color": Colors.orange},
+      {"icon": Icons.forest, "name": "🌲 Forest Mood", "color": Colors.green},
+      {"icon": Icons.diamond, "name": "🔮 Amethyst Mood", "color": Colors.purpleAccent},
+    ];
+
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: _isDarkMode ? const Color(0xFF1E1E1E) : Colors.white,
+      builder: (ctx) => ListView.builder(
+        shrinkWrap: true,
+        itemCount: listTema.length,
+        itemBuilder: (ctx, i) => ListTile(
+          leading: Icon(
+            listTema[i]['icon'] as IconData,
+            color: listTema[i]['color'] as Color,
+          ),
+          title: Text(
+            listTema[i]['name'] as String,
+            style: TextStyle(
+              color: _isDarkMode ? Colors.white : Colors.black,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+          onTap: () {
+            DatabaseHelper.instance.updateTema(kntg['id'], i, null);
+            _refresh();
+            Navigator.pop(ctx);
+          },
+        ),
+      ),
+    );
+  }
+
+  void _tambahDompet() {
+    String n = "";
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: _isDarkMode ? const Color(0xFF1E1E1E) : Colors.white,
+        title: Text(
+          "Dompet Baru",
+          style: TextStyle(color: _isDarkMode ? Colors.white : Colors.black),
+        ),
+        content: TextField(
+          style: TextStyle(color: _isDarkMode ? Colors.white : Colors.black),
+          onChanged: (v) => n = v,
+          decoration: InputDecoration(
+            hintText: "Nama Dompet",
+            hintStyle: TextStyle(
+              color: _isDarkMode ? Colors.white70 : Colors.black54,
+            ),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () async {
+              if (n.isNotEmpty) {
+                await DatabaseHelper.instance.tambahTabungan({
+                  'nama': n,
+                  'saldo': 0,
+                  'limit_kuning': 50000,
+                  'limit_hijau': 500000,
+                  'tema_id': 0,
+                });
+                _refresh();
+                if (!ctx.mounted) return;
+                Navigator.pop(ctx);
+              }
+            },
+            child: const Text("Buat"),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _konfirmasiHapusDompet(Map<String, dynamic> kntg) {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: _isDarkMode ? const Color(0xFF1E1E1E) : Colors.white,
+        title: Text(
+          "Hapus Dompet?",
+          style: TextStyle(color: _isDarkMode ? Colors.white : Colors.black),
+        ),
+        content: Text(
+          "Seluruh riwayat transaksi di dompet ini akan hilang selamanya.",
+          style: TextStyle(
+            color: _isDarkMode ? Colors.white70 : Colors.black54,
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () async {
+              await DatabaseHelper.instance.hapusTabungan(kntg['id']);
+              _refresh();
+              if (!ctx.mounted) return;
+              Navigator.pop(ctx);
+            },
+            child: const Text("Ya, Hapus", style: TextStyle(color: Colors.red)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _handleImagePick(Map<String, dynamic> kntg) async {
+    final p = await ImagePicker().pickImage(source: ImageSource.gallery);
+    if (p != null) {
+      final croppedFile = await ImageCropper().cropImage(
+        sourcePath: p.path,
+        aspectRatio: const CropAspectRatio(ratioX: 16, ratioY: 9),
+        uiSettings: [
+          AndroidUiSettings(
+            toolbarTitle: 'Potong Banner',
+            toolbarColor: Colors.blueAccent,
+            toolbarWidgetColor: Colors.white,
+          ),
+        ],
+      );
+      if (croppedFile != null) {
+        final directory = await getApplicationDocumentsDirectory();
+        final String fileName =
+            'banner_${DateTime.now().millisecondsSinceEpoch}.png';
+        final File localImage = await File(
+          croppedFile.path,
+        ).copy('${directory.path}/$fileName');
+        await DatabaseHelper.instance.updateTema(
+          kntg['id'],
+          0,
+          localImage.path,
+        );
+        _refresh();
+      }
+    }
+  }
 }

@@ -16,82 +16,81 @@ class DatabaseHelper {
   Future<Database> _initDB(String filePath) async {
     final dbPath = await getDatabasesPath();
     final path = join(dbPath, filePath);
-    return await openDatabase(path, version: 1, onCreate: _createDB);
+    return await openDatabase(path, version: 2, onCreate: _createDB, onUpgrade: _upgradeDB);
   }
 
   Future _createDB(Database db, int version) async {
-    await db.execute('''
-      CREATE TABLE tabungan (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        nama TEXT NOT NULL,
-        saldo REAL NOT NULL,
-        limit_kuning REAL DEFAULT 50000,
-        limit_hijau REAL DEFAULT 500000,
-        limit_biru REAL DEFAULT 1000000,
-        tema_id INTEGER DEFAULT 0,
-        banner_path TEXT
-      )
-    ''');
-    await db.execute('''
-      CREATE TABLE transactions (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        tabungan_id INTEGER,
-        amount REAL,
-        notes TEXT,
-        created_at TEXT
-      )
-    ''');
+    await db.execute('''CREATE TABLE tabungan (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      nama TEXT, saldo REAL, limit_kuning REAL, limit_hijau REAL,
+      tema_id INTEGER, banner_path TEXT
+    )''');
+    await db.execute('''CREATE TABLE transaksi (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      tabungan_id INTEGER, amount REAL, notes TEXT, created_at TEXT
+    )''');
   }
 
-  Future<int> tambahTabungan(Map<String, dynamic> data) async {
+  Future _upgradeDB(Database db, int oldV, int newV) async {
+    if (oldV < 2) {
+      // Tambah kolom limit kalau upgrade dari versi lama
+    }
+  }
+
+  // --- CRUD TABUNGAN ---
+  Future tambahTabungan(Map<String, dynamic> data) async {
     final db = await instance.database;
     return await db.insert('tabungan', data);
   }
 
-  Future<List<Map<String, dynamic>>> ambilSemuaTabungan() async {
+  Future ambilSemuaTabungan() async {
     final db = await instance.database;
-    return await db.query('tabungan');
+    return await db.query('tabungan', orderBy: 'id ASC');
   }
 
-  Future<int> updateSaldo(int id, double saldo) async {
+  Future updateSaldo(int id, double saldo) async {
     final db = await instance.database;
     return await db.update('tabungan', {'saldo': saldo}, where: 'id = ?', whereArgs: [id]);
   }
 
-  Future<int> updateTema(int id, int temaId, String? path) async {
+  Future updateTema(int id, int tema, String? path) async {
     final db = await instance.database;
-    return await db.update('tabungan', {'tema_id': temaId, 'banner_path': path}, where: 'id = ?', whereArgs: [id]);
+    return await db.update('tabungan', {'tema_id': tema, 'banner_path': path}, where: 'id = ?', whereArgs: [id]);
   }
-  
-  // Fungsi baru buat update limit kesenjangan sosial
-  Future<int> updateLimit(int id, double kuning, double hijau) async {
+
+  Future updateLimit(int id, double kuning, double hijau) async {
     final db = await instance.database;
     return await db.update('tabungan', {'limit_kuning': kuning, 'limit_hijau': hijau}, where: 'id = ?', whereArgs: [id]);
   }
 
-  // Fungsi baru buat hapus dompet dan semua riwayatnya (Cascade Delete)
-  Future<int> hapusTabungan(int id) async {
+  Future hapusTabungan(int id) async {
     final db = await instance.database;
-    await db.delete('transactions', where: 'tabungan_id = ?', whereArgs: [id]);
+    await db.delete('transaksi', where: 'tabungan_id = ?', whereArgs: [id]);
     return await db.delete('tabungan', where: 'id = ?', whereArgs: [id]);
   }
 
-  Future<int> tambahTransaksi(Map<String, dynamic> data) async {
+  // --- CRUD TRANSAKSI ---
+  Future tambahTransaksi(Map<String, dynamic> data) async {
     final db = await instance.database;
-    return await db.insert('transactions', data);
+    return await db.insert('transaksi', data);
   }
 
-  Future<List<Map<String, dynamic>>> ambilRiwayat(int id) async {
+  Future ambilRiwayat(int idTabungan) async {
     final db = await instance.database;
-    return await db.query('transactions', where: 'tabungan_id = ?', whereArgs: [id], orderBy: 'created_at DESC');
+    return await db.query('transaksi', where: 'tabungan_id = ?', whereArgs: [idTabungan], orderBy: 'created_at DESC');
   }
 
-  Future<int> hapusTransaksi(int id) async {
+  Future updateTransaksi(int id, double amount, String notes, String date) async {
     final db = await instance.database;
-    return await db.delete('transactions', where: 'id = ?', whereArgs: [id]);
+    return await db.update('transaksi', {'amount': amount, 'notes': notes, 'created_at': date}, where: 'id = ?', whereArgs: [id]);
   }
 
-  String formatRupiah(double amount) {
-    return NumberFormat.currency(locale: 'id_ID', symbol: 'Rp ', decimalDigits: 0).format(amount);
+  Future hapusTransaksi(int id) async {
+    final db = await instance.database;
+    return await db.delete('transaksi', where: 'id = ?', whereArgs: [id]);
+  }
+
+  String formatRupiah(double nominal) {
+    return NumberFormat.currency(locale: 'id_ID', symbol: 'Rp ', decimalDigits: 0).format(nominal);
   }
 }
