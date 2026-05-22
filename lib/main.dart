@@ -10,19 +10,38 @@ import 'package:google_sign_in/google_sign_in.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'dart:io';
 import 'database_helper.dart';
+import 'dart:convert';
+import 'package:http/http.dart' as http;
+import 'package:shared_preferences/shared_preferences.dart';
 
 class AnimatedCounter extends StatelessWidget {
   final double value;
   final TextStyle style;
-  const AnimatedCounter({super.key, required this.value, required this.style});
+  final String prefix;
+
+  const AnimatedCounter({
+    super.key,
+    required this.value,
+    required this.style,
+    this.prefix = 'Rp',
+  });
+
   @override
   Widget build(BuildContext context) {
     return TweenAnimationBuilder<double>(
       tween: Tween<double>(begin: 0, end: value),
       duration: const Duration(milliseconds: 1000),
       curve: Curves.easeOutExpo,
-      builder: (context, double val, child) =>
-          Text(DatabaseHelper.instance.formatRupiah(val), style: style),
+      builder: (context, double val, child) {
+        String formatAngka = NumberFormat.currency(
+          locale: prefix == 'Rp' ? 'id_ID' : 'en_US',
+          symbol: '$prefix ',
+          decimalDigits: prefix == 'Rp' || prefix == '¥' || prefix == '₩'
+              ? 0
+              : 2,
+        ).format(val);
+        return Text(formatAngka, style: style);
+      },
     );
   }
 }
@@ -74,9 +93,15 @@ class _HomePageState extends State<HomePage> {
   final TextEditingController _nominalController = TextEditingController();
   final TextEditingController _catatanController = TextEditingController();
 
+  // 🌍 Memori buat nampung SEMUA mata uang di dunia secara otomatis (Mesin Baru)
+  String _mataUangAktif = 'IDR'; 
+  Map<String, dynamic> _allRates = {'IDR': 1.0}; 
+
   @override
   void initState() {
     super.initState();
+    _loadKursLokal();
+    _fetchKursOtomatis();
     _pageController = PageController(viewportFraction: 0.85);
     _refresh();
     _googleSignIn.onCurrentUserChanged.listen((account) {
@@ -88,13 +113,57 @@ class _HomePageState extends State<HomePage> {
     _googleSignIn.signInSilently();
   }
 
+  // --- LOGIKA API GLOBAL 160+ NEGARA ---
+  Future<void> _fetchKursOtomatis() async {
+    try {
+      final response = await http.get(Uri.parse('https://open.er-api.com/v6/latest/USD'));
+      if (response.statusCode == 200) {
+        final data = json.decode(response.body);
+        final rates = data['rates'] as Map<String, dynamic>;
+        
+        double usdToIdr = rates['IDR']?.toDouble() ?? 16000.0;
+        Map<String, dynamic> convertedRates = {};
+        
+        rates.forEach((key, value) {
+          convertedRates[key] = usdToIdr / (value?.toDouble() ?? 1.0);
+        });
+
+        setState(() {
+          _allRates = convertedRates;
+        });
+
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.setString('all_rates_cache', json.encode(convertedRates));
+      }
+    } catch (e) {
+      debugPrint("Gagal update global currency, aman pake data lokal.");
+    }
+  }
+
+  // Baca data yang udah didownload pas lagi offline
+  Future<void> _loadKursLokal() async {
+    final prefs = await SharedPreferences.getInstance();
+    final String? cachedRates = prefs.getString('all_rates_cache');
+    if (cachedRates != null) {
+      setState(() {
+        _allRates = Map<String, dynamic>.from(json.decode(cachedRates));
+      });
+    }
+  }
+
+  // Logika hitung konversi saldo
+  double _getConvertedSaldo(double saldo) {
+    double rate = _allRates[_mataUangAktif]?.toDouble() ?? 1.0;
+    if (_mataUangAktif == 'IDR') return saldo;
+    return saldo / rate;
+  }
+
+  // --- LOGIKA DATABASE & CLOUD ---
   void _refresh() async {
     final data = await DatabaseHelper.instance.ambilSemuaTabungan();
     if (data.isNotEmpty) {
       if (indexTerpilih >= data.length) indexTerpilih = 0;
-      final log = await DatabaseHelper.instance.ambilRiwayat(
-        data[indexTerpilih]['id'],
-      );
+      final log = await DatabaseHelper.instance.ambilRiwayat(data[indexTerpilih]['id']);
       if (!mounted) return;
       setState(() {
         daftarKantong = data;
@@ -112,20 +181,14 @@ class _HomePageState extends State<HomePage> {
 
   Future<void> _autoBackupCloud() async {
     if (_currentUser == null) return;
-    final List<ConnectivityResult> connectRes = await Connectivity()
-        .checkConnectivity();
+    final List<ConnectivityResult> connectRes = await Connectivity().checkConnectivity();
     if (connectRes.contains(ConnectivityResult.none)) return;
     final firestore = FirebaseFirestore.instance;
     final String uid = _currentUser!.id;
     final lokalKantong = await DatabaseHelper.instance.ambilSemuaTabungan();
     for (var kntg in lokalKantong) {
       final String idDompet = kntg['id'].toString();
-      await firestore
-          .collection('users')
-          .doc(uid)
-          .collection('dompet')
-          .doc(idDompet)
-          .set({
+      await firestore.collection('users').doc(uid).collection('dompet').doc(idDompet).set({
             'nama': kntg['nama'],
             'saldo': kntg['saldo'],
             'limit_kuning': kntg['limit_kuning'],
@@ -134,14 +197,7 @@ class _HomePageState extends State<HomePage> {
           });
       final lokalTrx = await DatabaseHelper.instance.ambilRiwayat(kntg['id']);
       for (var trx in lokalTrx) {
-        await firestore
-            .collection('users')
-            .doc(uid)
-            .collection('dompet')
-            .doc(idDompet)
-            .collection('transaksi')
-            .doc(trx['id'].toString())
-            .set({
+        await firestore.collection('users').doc(uid).collection('dompet').doc(idDompet).collection('transaksi').doc(trx['id'].toString()).set({
               'amount': trx['amount'],
               'notes': trx['notes'],
               'created_at': trx['created_at'],
@@ -160,9 +216,9 @@ class _HomePageState extends State<HomePage> {
 
   String _getQuotes(int status) {
     if (status == 0) return "Uhee~ dompetnya kering banget... 😭";
-    if (status == 1) return "Hati-hati Senpai, saldo menipis! ⚠️";
-    if (status == 2) return "Aman terkendali, pertahankan! 🌿";
-    return "Sultan mode on! Beli kasur baru yuk~ 👑";
+    if (status == 1) return "Hati-hati kamu, saldo menipis! ⚠️";
+    if (status == 2) return "Aman terkendali, Jangan boros! 🌿";
+    return "Widih kaya nich,bagi dong~";
   }
 
   IconData _getQuoteIcon(int status) {
@@ -174,110 +230,19 @@ class _HomePageState extends State<HomePage> {
 
   List<Color> _getAdaptiveGradient(int status, int tema) {
     if (_isDarkMode) {
-      // 🎨 TEMA 0: Default Mood (Merah - Kuning - Hijau - Biru)
-      if (tema == 0) {
-        return [
-          [const Color(0xFFFF5252), const Color(0xFFD50000)],
-          [const Color(0xFFFFD740), const Color(0xFFFFAB00)],
-          [const Color(0xFF69F0AE), const Color(0xFF00E676)],
-          [const Color(0xFF40C4FF), const Color(0xFF0091EA)],
-        ][status];
-        // 🌸 TEMA 1: Sakura Mood (Gelap/Layu -> Pink Cerah -> Neon)
-      }
-      if (tema == 1) {
-        return [
-          [const Color(0xFF4A148C), const Color(0xFF311B92)],
-          [const Color(0xFF880E4F), const Color(0xFF4A148C)],
-          [const Color(0xFFC2185B), const Color(0xFF7B1FA2)],
-          [const Color(0xFFFF4081), const Color(0xFFE040FB)],
-        ][status];
-        // 🌊 TEMA 2: Ocean Mood (Laut Dalam -> Permukaan Cerah)
-      }
-      if (tema == 2) {
-        return [
-          [const Color(0xFF00102A), const Color(0xFF001F4D)],
-          [const Color(0xFF003C8F), const Color(0xFF005CB2)],
-          [const Color(0xFF1976D2), const Color(0xFF1E88E5)],
-          [const Color(0xFF448AFF), const Color(0xFF40C4FF)],
-        ][status];
-        // 🍂 TEMA 3: Autumn Mood (Coklat Gelap -> Daun Gugur -> Emas)
-      }
-      if (tema == 3) {
-        return [
-          [const Color(0xFF3E2723), const Color(0xFF4E342E)],
-          [const Color(0xFFBF360C), const Color(0xFFD84315)],
-          [const Color(0xFFE64A19), const Color(0xFFF4511E)],
-          [const Color(0xFFFF6D00), const Color(0xFFFF9100)],
-        ][status];
-        // 🌲 TEMA 4: Forest Mood (Rawa Gelap -> Hutan Hijau -> Lime)
-      }
-      if (tema == 4) {
-        return [
-          [const Color(0xFF1B5E20), const Color(0xFF004D40)],
-          [const Color(0xFF2E7D32), const Color(0xFF00695C)],
-          [const Color(0xFF43A047), const Color(0xFF00897B)],
-          [const Color(0xFF00E676), const Color(0xFF1DE9B6)],
-        ][status];
-        // 🔮 TEMA 5: Amethyst Mood (Ungu Pekat -> Magenta Terang)
-      }
-      if (tema == 5) {
-        return [
-          [const Color(0xFF1A237E), const Color(0xFF12185B)],
-          [const Color(0xFF311B92), const Color(0xFF1A237E)],
-          [const Color(0xFF5E35B1), const Color(0xFF3949AB)],
-          [const Color(0xFFAA00FF), const Color(0xFF536DFE)],
-        ][status];
-      }
+      if (tema == 0) return [[const Color(0xFFFF5252), const Color(0xFFD50000)], [const Color(0xFFFFD740), const Color(0xFFFFAB00)], [const Color(0xFF69F0AE), const Color(0xFF00E676)], [const Color(0xFF40C4FF), const Color(0xFF0091EA)]][status];
+      if (tema == 1) return [[const Color(0xFF4A148C), const Color(0xFF311B92)], [const Color(0xFF880E4F), const Color(0xFF4A148C)], [const Color(0xFFC2185B), const Color(0xFF7B1FA2)], [const Color(0xFFFF4081), const Color(0xFFE040FB)]][status];
+      if (tema == 2) return [[const Color(0xFF00102A), const Color(0xFF001F4D)], [const Color(0xFF003C8F), const Color(0xFF005CB2)], [const Color(0xFF1976D2), const Color(0xFF1E88E5)], [const Color(0xFF448AFF), const Color(0xFF40C4FF)]][status];
+      if (tema == 3) return [[const Color(0xFF3E2723), const Color(0xFF4E342E)], [const Color(0xFFBF360C), const Color(0xFFD84315)], [const Color(0xFFE64A19), const Color(0xFFF4511E)], [const Color(0xFFFF6D00), const Color(0xFFFF9100)]][status];
+      if (tema == 4) return [[const Color(0xFF1B5E20), const Color(0xFF004D40)], [const Color(0xFF2E7D32), const Color(0xFF00695C)], [const Color(0xFF43A047), const Color(0xFF00897B)], [const Color(0xFF00E676), const Color(0xFF1DE9B6)]][status];
+      if (tema == 5) return [[const Color(0xFF1A237E), const Color(0xFF12185B)], [const Color(0xFF311B92), const Color(0xFF1A237E)], [const Color(0xFF5E35B1), const Color(0xFF3949AB)], [const Color(0xFFAA00FF), const Color(0xFF536DFE)]][status];
     } else {
-      // 🎨 LIGHT MODE TRANSISI
-      if (tema == 0) {
-        return [
-          [Colors.red.shade300, Colors.red.shade600],
-          [Colors.orange.shade300, Colors.orange.shade600],
-          [Colors.green.shade400, Colors.green.shade600],
-          [Colors.blue.shade300, Colors.blue.shade600],
-        ][status];
-      }
-      if (tema == 1) {
-        return [
-          [Colors.pink.shade900, Colors.purple.shade900],
-          [Colors.pink.shade700, Colors.purple.shade700],
-          [Colors.pink.shade400, Colors.purple.shade400],
-          [Colors.pinkAccent.shade100, Colors.purpleAccent.shade100],
-        ][status];
-      }
-      if (tema == 2) {
-        return [
-          [Colors.indigo.shade900, Colors.blue.shade900],
-          [Colors.indigo.shade600, Colors.blue.shade700],
-          [Colors.blue.shade400, Colors.cyan.shade600],
-          [Colors.lightBlueAccent.shade100, Colors.cyanAccent.shade200],
-        ][status];
-      }
-      if (tema == 3) {
-        return [
-          [Colors.brown.shade800, Colors.deepOrange.shade900],
-          [Colors.deepOrange.shade600, Colors.orange.shade700],
-          [Colors.orange.shade400, Colors.amber.shade600],
-          [Colors.amberAccent.shade200, Colors.yellowAccent.shade200],
-        ][status];
-      }
-      if (tema == 4) {
-        return [
-          [Colors.green.shade900, Colors.teal.shade900],
-          [Colors.green.shade700, Colors.teal.shade700],
-          [Colors.green.shade400, Colors.teal.shade400],
-          [Colors.lightGreenAccent.shade200, Colors.tealAccent.shade200],
-        ][status];
-      }
-      if (tema == 5) {
-        return [
-          [Colors.deepPurple.shade900, Colors.indigo.shade900],
-          [Colors.deepPurple.shade600, Colors.indigo.shade700],
-          [Colors.purple.shade400, Colors.deepPurple.shade400],
-          [Colors.purpleAccent.shade100, Colors.deepPurpleAccent.shade100],
-        ][status];
-      }
+      if (tema == 0) return [[Colors.red.shade300, Colors.red.shade600], [Colors.orange.shade300, Colors.orange.shade600], [Colors.green.shade400, Colors.green.shade600], [Colors.blue.shade300, Colors.blue.shade600]][status];
+      if (tema == 1) return [[Colors.pink.shade900, Colors.purple.shade900], [Colors.pink.shade700, Colors.purple.shade700], [Colors.pink.shade400, Colors.purple.shade400], [Colors.pinkAccent.shade100, Colors.purpleAccent.shade100]][status];
+      if (tema == 2) return [[Colors.indigo.shade900, Colors.blue.shade900], [Colors.indigo.shade600, Colors.blue.shade700], [Colors.blue.shade400, Colors.cyan.shade600], [Colors.lightBlueAccent.shade100, Colors.cyanAccent.shade200]][status];
+      if (tema == 3) return [[Colors.brown.shade800, Colors.deepOrange.shade900], [Colors.deepOrange.shade600, Colors.orange.shade700], [Colors.orange.shade400, Colors.amber.shade600], [Colors.amberAccent.shade200, Colors.yellowAccent.shade200]][status];
+      if (tema == 4) return [[Colors.green.shade900, Colors.teal.shade900], [Colors.green.shade700, Colors.teal.shade700], [Colors.green.shade400, Colors.teal.shade400], [Colors.lightGreenAccent.shade200, Colors.tealAccent.shade200]][status];
+      if (tema == 5) return [[Colors.deepPurple.shade900, Colors.indigo.shade900], [Colors.deepPurple.shade600, Colors.indigo.shade700], [Colors.purple.shade400, Colors.deepPurple.shade400], [Colors.purpleAccent.shade100, Colors.deepPurpleAccent.shade100]][status];
     }
     return [Colors.grey, Colors.blueGrey];
   }
@@ -544,54 +509,47 @@ class _HomePageState extends State<HomePage> {
             ),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Text(
-                      kntg['nama'].toUpperCase(),
-                      style: const TextStyle(
-                        color: Colors.white,
-                        letterSpacing: 1.5,
-                        fontSize: 14,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                    IconButton(
-                      // TOMBOL EDIT DOMPET
-                      padding: EdgeInsets.zero,
-                      constraints: const BoxConstraints(),
-                      icon: const Icon(
-                        Icons.edit_note,
-                        color: Colors.white,
-                        size: 28,
-                      ),
-                      onPressed: () => _tampilkanPilihanBanner(kntg),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 10),
-                Row(
-                  children: [
-                    _hideSaldo
-                        ? const Text(
-                            "Rp ••••••••",
-                            style: TextStyle(
-                              color: Colors.white,
-                              fontSize: 26,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          )
-                        : AnimatedCounter(
-                            value: (kntg['saldo'] ?? 0).toDouble(),
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontSize: 26,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                  ],
-                ),
+              children: [// 🔥 TIMPA ROW PILIHAN KEDUA KAMU DENGAN KODE INI:
+Row(
+  children: [
+    // 🔘 Tombol Sakti Dropdown 160+ Negara
+    InkWell(
+      onTap: () => _tampilkanPilihanKurs(),
+      borderRadius: BorderRadius.circular(10),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+        decoration: BoxDecoration(
+          color: Colors.white.withValues(alpha: 0.2), 
+          borderRadius: BorderRadius.circular(10)
+        ),
+        child: Row(
+          children: [
+            Text(
+              _mataUangAktif, // Akan nampilin teks kayak "IDR", "USD", "KRW"
+              style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14)
+            ),
+            const Icon(Icons.arrow_drop_down, color: Colors.white, size: 20),
+          ],
+        ),
+      ),
+    ),
+    const SizedBox(width: 12),
+    
+    // 💰 Angka Saldo
+    Expanded(
+      child: _hideSaldo
+          ? const Text(
+              "••••••••", 
+              style: TextStyle(color: Colors.white, fontSize: 26, fontWeight: FontWeight.bold)
+            )
+          : AnimatedCounter(
+              value: _getConvertedSaldo((kntg['saldo'] ?? 0).toDouble()),
+              prefix: _mataUangAktif, 
+              style: const TextStyle(color: Colors.white, fontSize: 26, fontWeight: FontWeight.bold),
+            ),
+    ),
+  ],
+),
                 const Spacer(),
                 Row(
                   children: [
@@ -886,7 +844,11 @@ class _HomePageState extends State<HomePage> {
                   foregroundColor: Colors.white,
                 ),
                 onPressed: () async {
-                  double n = double.tryParse(_nominalController.text) ?? 0;
+                  String teksbersih = _nominalController.text.replaceAll(
+                    '.',
+                    '',
+                  );
+                  double n = double.tryParse(teksbersih) ?? 0;
                   if (n > 0) {
                     if (dataLama == null) {
                       await DatabaseHelper.instance.tambahTransaksi({
@@ -1047,7 +1009,8 @@ class _HomePageState extends State<HomePage> {
               ),
               keyboardType: TextInputType.number,
               controller: TextEditingController(text: kun.toStringAsFixed(0)),
-              onChanged: (v) => kun = double.tryParse(v) ?? kun,
+              onChanged: (v) =>
+                  kun = double.tryParse(v.replaceAll('.', '')) ?? kun,
             ),
             TextField(
               decoration: InputDecoration(
@@ -1061,7 +1024,8 @@ class _HomePageState extends State<HomePage> {
               ),
               keyboardType: TextInputType.number,
               controller: TextEditingController(text: hij.toStringAsFixed(0)),
-              onChanged: (v) => hij = double.tryParse(v) ?? hij,
+              onChanged: (v) =>
+                  hij = double.tryParse(v.replaceAll('.', '')) ?? hij,
             ),
           ],
         ),
@@ -1080,14 +1044,61 @@ class _HomePageState extends State<HomePage> {
     );
   }
 
+void _tampilkanPilihanKurs() {
+    List<String> semuaNegara = _allRates.keys.toList()..sort();
+
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: _isDarkMode ? const Color(0xFF1E1E1E) : Colors.white,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+      builder: (ctx) => Column(
+        children: [
+          const Padding(
+            padding: EdgeInsets.all(15),
+            child: Text("Pilih Mata Uang Global", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+          ),
+          Expanded(
+            child: ListView.builder(
+              itemCount: semuaNegara.length,
+              itemBuilder: (ctx, i) {
+                String code = semuaNegara[i];
+                return ListTile(
+                  leading: CircleAvatar(backgroundColor: Colors.blueAccent.withValues(alpha: 0.1), child: Text(code, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold))),
+                  title: Text(code, style: TextStyle(color: _isDarkMode ? Colors.white : Colors.black, fontWeight: FontWeight.bold)),
+                  trailing: _mataUangAktif == code ? const Icon(Icons.check_circle, color: Colors.blue) : null,
+                  onTap: () {
+                    setState(() => _mataUangAktif = code);
+                    Navigator.pop(ctx);
+                  },
+                );
+              },
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   void _pilihTema(Map<String, dynamic> kntg) {
     final listTema = [
-      {"icon": Icons.circle, "name": "🎨 Default Mood", "color": Colors.blueAccent},
+      {
+        "icon": Icons.circle,
+        "name": "🎨 Default Mood",
+        "color": Colors.blueAccent,
+      },
       {"icon": Icons.spa, "name": "🌸 Sakura Mood", "color": Colors.pinkAccent},
-      {"icon": Icons.water_drop, "name": "🌊 Ocean Mood", "color": Colors.lightBlue},
+      {
+        "icon": Icons.water_drop,
+        "name": "🌊 Ocean Mood",
+        "color": Colors.lightBlue,
+      },
       {"icon": Icons.park, "name": "🍂 Autumn Mood", "color": Colors.orange},
       {"icon": Icons.forest, "name": "🌲 Forest Mood", "color": Colors.green},
-      {"icon": Icons.diamond, "name": "🔮 Amethyst Mood", "color": Colors.purpleAccent},
+      {
+        "icon": Icons.diamond,
+        "name": "🔮 Amethyst Mood",
+        "color": Colors.purpleAccent,
+      },
     ];
 
     showModalBottomSheet(
@@ -1146,7 +1157,7 @@ class _HomePageState extends State<HomePage> {
                   'nama': n,
                   'saldo': 0,
                   'limit_kuning': 50000,
-                  'limit_hijau': 500000,
+                  'limit_hijau': 100000,
                   'tema_id': 0,
                 });
                 _refresh();
