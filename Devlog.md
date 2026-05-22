@@ -59,3 +59,31 @@ Every project has its hurdles. Here are the technical challenges faced and resol
 ---
 
 *“Uhee~ Work hard, sleep harder.”*
+
+# 🚀 Devlog: MaidPocket v1.2.0 - The Aesthetic & Stability Update
+
+Uhee~ After a long survival night debugging on a 4GB RAM laptop, MaidPocket officially upgraded with premium UI adjustments, dynamic theme logic, and solid structural bugfixes!
+
+## ✨ What's New
+
+### 🎨 Visual & UI Enhancements
+- **Modernized Drawer:** Ditched the outdated Google-blue style. The sidebar now adopts a clean glassmorphism layout that responds correctly to both Light and Dark modes.
+- **Neon Bright Dark Mode:** Enhanced wallet visibility in dark mode with saturated neon gradients and subtle borders so your wallet card doesn't fade into the dark background.
+- **Visual Dividers:** Added structural divider lines to clearly separate the wallet slider from the transaction history section.
+
+### 🎭 Mood & Theme Systems (4-Stage Adaptation)
+- **Dynamic Limit Gradients:** All custom themes (**Sakura 🌸, Ocean 🌊, Autumn 🍂, Forest 🌲, and Amethyst 🔮**) now support full 4-stage color shifts based on your balance limits:
+  - 😭 *Saldo Kering:* Desaturated/faded color tones.
+  - ⚠️ *Saldo Menipis:* Darker/alert shades.
+  - 🌿 *Saldo Aman:* Balanced aesthetic pastel gradients.
+  - 👑 *Sultan Mode:* Full-blown vibrant neon highlights!
+- **Dynamic Quotes & Icons:** The descriptive quote and indicator icon at the bottom of the wallet automatically updates alongside the 4 mood phases.
+
+### 🔒 Privacy & Core Features
+- **Optional Data Privacy Switch:** Changed the forced banking sensor into an optional toggle switch in the drawer settings. Users can choose to blur their balance (`Rp ••••••••`) by default or keep it visible.
+- **Robust Transaction Deletion:** Implemented instant calculation rollbacks when removing records—available both via swipe-to-delete gestures and an explicit delete button inside the edit modal.
+
+## 🐛 Bugfixes & Code Cleanups
+- **Async Context Safety:** Fixed multiple `use_build_context_synchronously` warnings by embedding `if (!ctx.mounted) return;` safety guards before invoking `Navigator.pop()`.
+- **Strict Linter Adherence:** Wrapped all single-line `if` condition flow controls inside proper curly braces `{}` to comply with strict Flutter layout formatting.
+- **Deprecation Cleanups:** Swapped outdated `activeColor` parameter inside `Switch` widgets with the newer `activeThumbColor` implementation.
