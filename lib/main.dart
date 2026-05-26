@@ -509,48 +509,76 @@ class _HomePageState extends State<HomePage> {
             ),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
-              children: [// 🔥 TIMPA ROW PILIHAN KEDUA KAMU DENGAN KODE INI:
-Row(
-  children: [
-    // 🔘 Tombol Sakti Dropdown 160+ Negara
-    InkWell(
-      onTap: () => _tampilkanPilihanKurs(),
-      borderRadius: BorderRadius.circular(10),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-        decoration: BoxDecoration(
-          color: Colors.white.withValues(alpha: 0.2), 
-          borderRadius: BorderRadius.circular(10)
-        ),
-        child: Row(
-          children: [
-            Text(
-              _mataUangAktif, // Akan nampilin teks kayak "IDR", "USD", "KRW"
-              style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14)
-            ),
-            const Icon(Icons.arrow_drop_down, color: Colors.white, size: 20),
-          ],
-        ),
-      ),
-    ),
-    const SizedBox(width: 12),
-    
-    // 💰 Angka Saldo
-    Expanded(
-      child: _hideSaldo
-          ? const Text(
-              "••••••••", 
-              style: TextStyle(color: Colors.white, fontSize: 26, fontWeight: FontWeight.bold)
-            )
-          : AnimatedCounter(
-              value: _getConvertedSaldo((kntg['saldo'] ?? 0).toDouble()),
-              prefix: _mataUangAktif, 
-              style: const TextStyle(color: Colors.white, fontSize: 26, fontWeight: FontWeight.bold),
-            ),
-    ),
-  ],
-),
+              children: [
+                // 🔥 1. INI JUDUL & TOMBOL EDIT (Sudah dikembalikan!)
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text(
+                      kntg['nama'].toUpperCase(),
+                      style: const TextStyle(
+                        color: Colors.white,
+                        letterSpacing: 1.5,
+                        fontSize: 14,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    IconButton(
+                      padding: EdgeInsets.zero,
+                      constraints: const BoxConstraints(),
+                      icon: const Icon(
+                        Icons.edit_note,
+                        color: Colors.white,
+                        size: 28,
+                      ),
+                      onPressed: () => _tampilkanPilihanBanner(kntg),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 10),
+
+                // 🔥 2. INI TOMBOL DROPDOWN NEGARA & SALDO (160+ Mata Uang)
+                Row(
+                  children: [
+                    InkWell(
+                      onTap: () => _tampilkanPilihanKurs(),
+                      borderRadius: BorderRadius.circular(10),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                        decoration: BoxDecoration(
+                          color: Colors.white.withValues(alpha: 0.2),
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: Row(
+                          children: [
+                            Text(
+                              _mataUangAktif,
+                              style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14),
+                            ),
+                            const Icon(Icons.arrow_drop_down, color: Colors.white, size: 20),
+                          ],
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: _hideSaldo
+                          ? const Text(
+                              "••••••••",
+                              style: TextStyle(color: Colors.white, fontSize: 26, fontWeight: FontWeight.bold),
+                            )
+                          : AnimatedCounter(
+                              value: _getConvertedSaldo((kntg['saldo'] ?? 0).toDouble()),
+                              prefix: _mataUangAktif,
+                              style: const TextStyle(color: Colors.white, fontSize: 26, fontWeight: FontWeight.bold),
+                            ),
+                    ),
+                  ],
+                ),
+                
                 const Spacer(),
+                
+                // 🔥 3. INI QUOTES
                 Row(
                   children: [
                     Icon(_getQuoteIcon(status), color: Colors.white, size: 16),
