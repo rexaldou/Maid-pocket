@@ -23,7 +23,7 @@ class DatabaseHelper {
     await db.execute('''CREATE TABLE tabungan (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       nama TEXT, saldo REAL, limit_kuning REAL, limit_hijau REAL,
-      tema_id INTEGER, banner_path TEXT
+      tema_id INTEGER, banner_path TEXT, kategori TEXT
     )''');
     await db.execute('''CREATE TABLE transaksi (
       id INTEGER PRIMARY KEY AUTOINCREMENT,

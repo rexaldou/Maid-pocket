@@ -33,10 +33,9 @@ class AnimatedCounter extends StatelessWidget {
       duration: const Duration(milliseconds: 1000),
       curve: Curves.easeOutExpo,
       builder: (context, double val, child) {
-        String formatAngka = NumberFormat.currency(
-          locale: prefix == 'Rp' ? 'id_ID' : 'en_US',
-          symbol: '$prefix ',
-          decimalDigits: prefix == 'Rp' || prefix == '¥' || prefix == '₩'
+        String formatAngka = NumberFormat.simpleCurrency(
+          name: prefix, // prefix di sini isinya 'IDR', 'USD', dll
+          decimalDigits: (prefix == 'IDR' || prefix == 'JPY' || prefix == 'KRW')
               ? 0
               : 2,
         ).format(val);
@@ -93,15 +92,19 @@ class _HomePageState extends State<HomePage> {
   final TextEditingController _nominalController = TextEditingController();
   final TextEditingController _catatanController = TextEditingController();
 
-  // 🌍 Memori buat nampung SEMUA mata uang di dunia secara otomatis (Mesin Baru)
-  String _mataUangAktif = 'IDR'; 
-  Map<String, dynamic> _allRates = {'IDR': 1.0}; 
+  // Memori buat nampung SEMUA mata uang di dunia secara otomatis (Mesin Baru)
+  String _mataUangAktif = 'IDR';
+  Map<String, dynamic> _allRates = {'IDR': 1.0};
+
+  String _kategoriterpilih = 'Umum';
+  final List<String> _listkategori =['Umum','Makan','Transportasi','Top-up','Tagihan','Utang'];
 
   @override
   void initState() {
     super.initState();
     _loadKursLokal();
     _fetchKursOtomatis();
+
     _pageController = PageController(viewportFraction: 0.85);
     _refresh();
     _googleSignIn.onCurrentUserChanged.listen((account) {
@@ -116,14 +119,16 @@ class _HomePageState extends State<HomePage> {
   // --- LOGIKA API GLOBAL 160+ NEGARA ---
   Future<void> _fetchKursOtomatis() async {
     try {
-      final response = await http.get(Uri.parse('https://open.er-api.com/v6/latest/USD'));
+      final response = await http.get(
+        Uri.parse('https://open.er-api.com/v6/latest/USD'),
+      );
       if (response.statusCode == 200) {
         final data = json.decode(response.body);
         final rates = data['rates'] as Map<String, dynamic>;
-        
+
         double usdToIdr = rates['IDR']?.toDouble() ?? 16000.0;
         Map<String, dynamic> convertedRates = {};
-        
+
         rates.forEach((key, value) {
           convertedRates[key] = usdToIdr / (value?.toDouble() ?? 1.0);
         });
@@ -163,7 +168,9 @@ class _HomePageState extends State<HomePage> {
     final data = await DatabaseHelper.instance.ambilSemuaTabungan();
     if (data.isNotEmpty) {
       if (indexTerpilih >= data.length) indexTerpilih = 0;
-      final log = await DatabaseHelper.instance.ambilRiwayat(data[indexTerpilih]['id']);
+      final log = await DatabaseHelper.instance.ambilRiwayat(
+        data[indexTerpilih]['id'],
+      );
       if (!mounted) return;
       setState(() {
         daftarKantong = data;
@@ -181,14 +188,20 @@ class _HomePageState extends State<HomePage> {
 
   Future<void> _autoBackupCloud() async {
     if (_currentUser == null) return;
-    final List<ConnectivityResult> connectRes = await Connectivity().checkConnectivity();
+    final List<ConnectivityResult> connectRes = await Connectivity()
+        .checkConnectivity();
     if (connectRes.contains(ConnectivityResult.none)) return;
     final firestore = FirebaseFirestore.instance;
     final String uid = _currentUser!.id;
     final lokalKantong = await DatabaseHelper.instance.ambilSemuaTabungan();
     for (var kntg in lokalKantong) {
       final String idDompet = kntg['id'].toString();
-      await firestore.collection('users').doc(uid).collection('dompet').doc(idDompet).set({
+      await firestore
+          .collection('users')
+          .doc(uid)
+          .collection('dompet')
+          .doc(idDompet)
+          .set({
             'nama': kntg['nama'],
             'saldo': kntg['saldo'],
             'limit_kuning': kntg['limit_kuning'],
@@ -197,7 +210,14 @@ class _HomePageState extends State<HomePage> {
           });
       final lokalTrx = await DatabaseHelper.instance.ambilRiwayat(kntg['id']);
       for (var trx in lokalTrx) {
-        await firestore.collection('users').doc(uid).collection('dompet').doc(idDompet).collection('transaksi').doc(trx['id'].toString()).set({
+        await firestore
+            .collection('users')
+            .doc(uid)
+            .collection('dompet')
+            .doc(idDompet)
+            .collection('transaksi')
+            .doc(trx['id'].toString())
+            .set({
               'amount': trx['amount'],
               'notes': trx['notes'],
               'created_at': trx['created_at'],
@@ -230,19 +250,103 @@ class _HomePageState extends State<HomePage> {
 
   List<Color> _getAdaptiveGradient(int status, int tema) {
     if (_isDarkMode) {
-      if (tema == 0) return [[const Color(0xFFFF5252), const Color(0xFFD50000)], [const Color(0xFFFFD740), const Color(0xFFFFAB00)], [const Color(0xFF69F0AE), const Color(0xFF00E676)], [const Color(0xFF40C4FF), const Color(0xFF0091EA)]][status];
-      if (tema == 1) return [[const Color(0xFF4A148C), const Color(0xFF311B92)], [const Color(0xFF880E4F), const Color(0xFF4A148C)], [const Color(0xFFC2185B), const Color(0xFF7B1FA2)], [const Color(0xFFFF4081), const Color(0xFFE040FB)]][status];
-      if (tema == 2) return [[const Color(0xFF00102A), const Color(0xFF001F4D)], [const Color(0xFF003C8F), const Color(0xFF005CB2)], [const Color(0xFF1976D2), const Color(0xFF1E88E5)], [const Color(0xFF448AFF), const Color(0xFF40C4FF)]][status];
-      if (tema == 3) return [[const Color(0xFF3E2723), const Color(0xFF4E342E)], [const Color(0xFFBF360C), const Color(0xFFD84315)], [const Color(0xFFE64A19), const Color(0xFFF4511E)], [const Color(0xFFFF6D00), const Color(0xFFFF9100)]][status];
-      if (tema == 4) return [[const Color(0xFF1B5E20), const Color(0xFF004D40)], [const Color(0xFF2E7D32), const Color(0xFF00695C)], [const Color(0xFF43A047), const Color(0xFF00897B)], [const Color(0xFF00E676), const Color(0xFF1DE9B6)]][status];
-      if (tema == 5) return [[const Color(0xFF1A237E), const Color(0xFF12185B)], [const Color(0xFF311B92), const Color(0xFF1A237E)], [const Color(0xFF5E35B1), const Color(0xFF3949AB)], [const Color(0xFFAA00FF), const Color(0xFF536DFE)]][status];
+      if (tema == 0) {
+        return [
+          [const Color(0xFFFF5252), const Color(0xFFD50000)],
+          [const Color(0xFFFFD740), const Color(0xFFFFAB00)],
+          [const Color(0xFF69F0AE), const Color(0xFF00E676)],
+          [const Color(0xFF40C4FF), const Color(0xFF0091EA)],
+        ][status];
+      }
+      if (tema == 1) {
+        return [
+          [const Color(0xFF4A148C), const Color(0xFF311B92)],
+          [const Color(0xFF880E4F), const Color(0xFF4A148C)],
+          [const Color(0xFFC2185B), const Color(0xFF7B1FA2)],
+          [const Color(0xFFFF4081), const Color(0xFFE040FB)],
+        ][status];
+      }
+      if (tema == 2) {
+        return [
+          [const Color(0xFF00102A), const Color(0xFF001F4D)],
+          [const Color(0xFF003C8F), const Color(0xFF005CB2)],
+          [const Color(0xFF1976D2), const Color(0xFF1E88E5)],
+          [const Color(0xFF448AFF), const Color(0xFF40C4FF)],
+        ][status];
+      }
+      if (tema == 3) {
+        return [
+          [const Color(0xFF3E2723), const Color(0xFF4E342E)],
+          [const Color(0xFFBF360C), const Color(0xFFD84315)],
+          [const Color(0xFFE64A19), const Color(0xFFF4511E)],
+          [const Color(0xFFFF6D00), const Color(0xFFFF9100)],
+        ][status];
+      }
+      if (tema == 4) {
+        return [
+          [const Color(0xFF1B5E20), const Color(0xFF004D40)],
+          [const Color(0xFF2E7D32), const Color(0xFF00695C)],
+          [const Color(0xFF43A047), const Color(0xFF00897B)],
+          [const Color(0xFF00E676), const Color(0xFF1DE9B6)],
+        ][status];
+      }
+      if (tema == 5) {
+        return [
+          [const Color(0xFF1A237E), const Color(0xFF12185B)],
+          [const Color(0xFF311B92), const Color(0xFF1A237E)],
+          [const Color(0xFF5E35B1), const Color(0xFF3949AB)],
+          [const Color(0xFFAA00FF), const Color(0xFF536DFE)],
+        ][status];
+      }
     } else {
-      if (tema == 0) return [[Colors.red.shade300, Colors.red.shade600], [Colors.orange.shade300, Colors.orange.shade600], [Colors.green.shade400, Colors.green.shade600], [Colors.blue.shade300, Colors.blue.shade600]][status];
-      if (tema == 1) return [[Colors.pink.shade900, Colors.purple.shade900], [Colors.pink.shade700, Colors.purple.shade700], [Colors.pink.shade400, Colors.purple.shade400], [Colors.pinkAccent.shade100, Colors.purpleAccent.shade100]][status];
-      if (tema == 2) return [[Colors.indigo.shade900, Colors.blue.shade900], [Colors.indigo.shade600, Colors.blue.shade700], [Colors.blue.shade400, Colors.cyan.shade600], [Colors.lightBlueAccent.shade100, Colors.cyanAccent.shade200]][status];
-      if (tema == 3) return [[Colors.brown.shade800, Colors.deepOrange.shade900], [Colors.deepOrange.shade600, Colors.orange.shade700], [Colors.orange.shade400, Colors.amber.shade600], [Colors.amberAccent.shade200, Colors.yellowAccent.shade200]][status];
-      if (tema == 4) return [[Colors.green.shade900, Colors.teal.shade900], [Colors.green.shade700, Colors.teal.shade700], [Colors.green.shade400, Colors.teal.shade400], [Colors.lightGreenAccent.shade200, Colors.tealAccent.shade200]][status];
-      if (tema == 5) return [[Colors.deepPurple.shade900, Colors.indigo.shade900], [Colors.deepPurple.shade600, Colors.indigo.shade700], [Colors.purple.shade400, Colors.deepPurple.shade400], [Colors.purpleAccent.shade100, Colors.deepPurpleAccent.shade100]][status];
+      if (tema == 0) {
+        return [
+          [Colors.red.shade300, Colors.red.shade600],
+          [Colors.orange.shade300, Colors.orange.shade600],
+          [Colors.green.shade400, Colors.green.shade600],
+          [Colors.blue.shade300, Colors.blue.shade600],
+        ][status];
+      }
+      if (tema == 1) {
+        return [
+          [Colors.pink.shade900, Colors.purple.shade900],
+          [Colors.pink.shade700, Colors.purple.shade700],
+          [Colors.pink.shade400, Colors.purple.shade400],
+          [Colors.pinkAccent.shade100, Colors.purpleAccent.shade100],
+        ][status];
+      }
+      if (tema == 2) {
+        return [
+          [Colors.indigo.shade900, Colors.blue.shade900],
+          [Colors.indigo.shade600, Colors.blue.shade700],
+          [Colors.blue.shade400, Colors.cyan.shade600],
+          [Colors.lightBlueAccent.shade100, Colors.cyanAccent.shade200],
+        ][status];
+      }
+      if (tema == 3) {
+        return [
+          [Colors.brown.shade800, Colors.deepOrange.shade900],
+          [Colors.deepOrange.shade600, Colors.orange.shade700],
+          [Colors.orange.shade400, Colors.amber.shade600],
+          [Colors.amberAccent.shade200, Colors.yellowAccent.shade200],
+        ][status];
+      }
+      if (tema == 4) {
+        return [
+          [Colors.green.shade900, Colors.teal.shade900],
+          [Colors.green.shade700, Colors.teal.shade700],
+          [Colors.green.shade400, Colors.teal.shade400],
+          [Colors.lightGreenAccent.shade200, Colors.tealAccent.shade200],
+        ][status];
+      }
+      if (tema == 5) {
+        return [
+          [Colors.deepPurple.shade900, Colors.indigo.shade900],
+          [Colors.deepPurple.shade600, Colors.indigo.shade700],
+          [Colors.purple.shade400, Colors.deepPurple.shade400],
+          [Colors.purpleAccent.shade100, Colors.deepPurpleAccent.shade100],
+        ][status];
+      }
     }
     return [Colors.grey, Colors.blueGrey];
   }
@@ -458,7 +562,7 @@ class _HomePageState extends State<HomePage> {
   );
 
   Widget _buildWalletSlider() => SizedBox(
-    height: 220,
+    height: 250,
     child: PageView.builder(
       controller: _pageController,
       itemCount: daftarKantong.length,
@@ -475,127 +579,170 @@ class _HomePageState extends State<HomePage> {
         );
         List<Color> grad = _getAdaptiveGradient(status, kntg['tema_id'] ?? 0);
 
-        return AnimatedContainer(
-          duration: const Duration(milliseconds: 500),
-          margin: const EdgeInsets.symmetric(horizontal: 10, vertical: 15),
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(25),
-            gradient: LinearGradient(
-              colors: grad,
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-            ),
-            boxShadow: [
-              BoxShadow(
-                color: grad[0].withValues(alpha: 0.4),
-                blurRadius: 15,
-                offset: const Offset(0, 5),
-              ),
-            ],
-            image: kntg['banner_path'] != null
-                ? DecorationImage(
-                    image: FileImage(File(kntg['banner_path'])),
-                    fit: BoxFit.cover,
-                  )
-                : null,
-          ),
-          child: Container(
-            padding: const EdgeInsets.all(20),
+        return AnimatedBuilder(
+          animation: _pageController,
+          builder: (context, child) {
+            double value = 1.0;
+            if (_pageController.position.haveDimensions) {
+              value = _pageController.page! - i;
+              value = (1 - (value.abs() * 0.2)).clamp(0.0, 1.0);
+            }
+            return Transform.scale(
+              scale: Curves.easeOut.transform(value),
+              child: Opacity(opacity: value.clamp(0.4, 1.0), child: child),
+            );
+          },
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 500),
+            margin: const EdgeInsets.symmetric(horizontal: 10, vertical: 15),
             decoration: BoxDecoration(
               borderRadius: BorderRadius.circular(25),
-              color: Colors.black.withValues(
-                alpha: kntg['banner_path'] != null ? 0.5 : 0.1,
+              gradient: LinearGradient(
+                colors: grad,
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
               ),
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                // 🔥 1. INI JUDUL & TOMBOL EDIT (Sudah dikembalikan!)
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Text(
-                      kntg['nama'].toUpperCase(),
-                      style: const TextStyle(
-                        color: Colors.white,
-                        letterSpacing: 1.5,
-                        fontSize: 14,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                    IconButton(
-                      padding: EdgeInsets.zero,
-                      constraints: const BoxConstraints(),
-                      icon: const Icon(
-                        Icons.edit_note,
-                        color: Colors.white,
-                        size: 28,
-                      ),
-                      onPressed: () => _tampilkanPilihanBanner(kntg),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 10),
-
-                // 🔥 2. INI TOMBOL DROPDOWN NEGARA & SALDO (160+ Mata Uang)
-                Row(
-                  children: [
-                    InkWell(
-                      onTap: () => _tampilkanPilihanKurs(),
-                      borderRadius: BorderRadius.circular(10),
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                        decoration: BoxDecoration(
-                          color: Colors.white.withValues(alpha: 0.2),
-                          borderRadius: BorderRadius.circular(10),
-                        ),
-                        child: Row(
-                          children: [
-                            Text(
-                              _mataUangAktif,
-                              style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14),
-                            ),
-                            const Icon(Icons.arrow_drop_down, color: Colors.white, size: 20),
-                          ],
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: _hideSaldo
-                          ? const Text(
-                              "••••••••",
-                              style: TextStyle(color: Colors.white, fontSize: 26, fontWeight: FontWeight.bold),
-                            )
-                          : AnimatedCounter(
-                              value: _getConvertedSaldo((kntg['saldo'] ?? 0).toDouble()),
-                              prefix: _mataUangAktif,
-                              style: const TextStyle(color: Colors.white, fontSize: 26, fontWeight: FontWeight.bold),
-                            ),
-                    ),
-                  ],
-                ),
-                
-                const Spacer(),
-                
-                // 🔥 3. INI QUOTES
-                Row(
-                  children: [
-                    Icon(_getQuoteIcon(status), color: Colors.white, size: 16),
-                    const SizedBox(width: 6),
-                    Expanded(
-                      child: Text(
-                        _getQuotes(status),
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 12,
-                          fontStyle: FontStyle.italic,
-                        ),
-                      ),
-                    ),
-                  ],
+              boxShadow: [
+                BoxShadow(
+                  color: grad[0].withValues(alpha: 0.4),
+                  blurRadius: 15,
+                  offset: const Offset(0, 5),
                 ),
               ],
+              image: kntg['banner_path'] != null
+                  ? DecorationImage(
+                      image: FileImage(File(kntg['banner_path'])),
+                      fit: BoxFit.cover,
+                    )
+                  : null,
+            ),
+            child: Container(
+              padding: const EdgeInsets.all(20),
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(25),
+                color: Colors.black.withValues(
+                  alpha: kntg['banner_path'] != null ? 0.5 : 0.1,
+                ),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // 🔥 1. INI JUDUL & TOMBOL EDIT (Sudah dikembalikan!)
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text(
+                        kntg['nama'].toUpperCase(),
+                        style: const TextStyle(
+                          color: Colors.white,
+                          letterSpacing: 1.5,
+                          fontSize: 14,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      IconButton(
+                        padding: EdgeInsets.zero,
+                        constraints: const BoxConstraints(),
+                        icon: const Icon(
+                          Icons.edit_note,
+                          color: Colors.white,
+                          size: 28,
+                        ),
+                        onPressed: () => _tampilkanPilihanBanner(kntg),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 10),
+
+                  // 🔥 2. INI TOMBOL DROPDOWN NEGARA & SALDO (160+ Mata Uang)
+                  Row(
+                    children: [
+                      InkWell(
+                        onTap: () => _tampilkanPilihanKurs(),
+                        borderRadius: BorderRadius.circular(10),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 10,
+                            vertical: 6,
+                          ),
+                          decoration: BoxDecoration(
+                            color: Colors.white.withValues(alpha: 0.2),
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                          child: Row(
+                            children: [
+                              Text(
+                                _mataUangAktif,
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 14,
+                                ),
+                              ),
+                              const Icon(
+                                Icons.arrow_drop_down,
+                                color: Colors.white,
+                                size: 20,
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: FittedBox(
+                          fit: BoxFit.scaleDown,
+                          alignment: Alignment.centerLeft,
+                          child: _hideSaldo
+                              ? const Text(
+                                  "••••••••",
+                                  style: TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 32,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                )
+                              : AnimatedCounter(
+                                  value: _getConvertedSaldo(
+                                    (kntg['saldo'] ?? 0).toDouble(),
+                                  ),
+                                  prefix: _mataUangAktif,
+                                  style: const TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 32,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                        ),
+                      ),
+                    ],
+                  ),
+
+                  const Spacer(),
+
+                  // 🔥 3. INI QUOTES
+                  Row(
+                    children: [
+                      Icon(
+                        _getQuoteIcon(status),
+                        color: Colors.white,
+                        size: 16,
+                      ),
+                      const SizedBox(width: 6),
+                      Expanded(
+                        child: Text(
+                          _getQuotes(status),
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 12,
+                            fontStyle: FontStyle.italic,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
             ),
           ),
         );
@@ -653,6 +800,16 @@ class _HomePageState extends State<HomePage> {
       ],
     ),
   );
+
+  IconData _getIkonKategori(String kategori) {
+    switch (kategori) {
+      case 'Makan': return Icons.fastfood;
+      case 'Transportasi': return Icons.directions_car;
+      case 'Top-up': return Icons.account_balance_wallet;
+      case 'Tagihan': return Icons.receipt_long;
+      default: return Icons.category; //Inih ikon yang umum,kurang Utang
+    }
+  }
 
   Widget _buildRiwayatHeader(Color txtCol) => Column(
     children: [
@@ -718,9 +875,9 @@ class _HomePageState extends State<HomePage> {
                   alpha: 0.1,
                 ),
                 child: Icon(
-                  inc ? Icons.add : Icons.remove,
-                  color: inc ? Colors.green : Colors.red,
-                  size: 16,
+                  _getIkonKategori(trx['kategori'] ?? 'Umum'),
+                  color: inc? Colors.green : Colors.red,
+                  size: 18,
                 ),
               ),
               title: Text(
@@ -784,6 +941,8 @@ class _HomePageState extends State<HomePage> {
     double nom = dataLama != null ? dataLama['amount'].abs() : 0;
     _nominalController.text = nom == 0 ? "" : nom.toStringAsFixed(0);
     _catatanController.text = dataLama?['notes'] ?? "";
+    _kategoriterpilih = dataLama?
+    ['kategori']?? 'Umum';
     DateTime tgl = dataLama != null
         ? DateTime.parse(dataLama['created_at'])
         : DateTime.now();
@@ -830,19 +989,29 @@ class _HomePageState extends State<HomePage> {
                 ),
               ),
               const SizedBox(height: 10),
-              TextField(
-                controller: _catatanController,
-                style: TextStyle(
-                  color: _isDarkMode ? Colors.white : Colors.black,
-                ),
-                decoration: InputDecoration(
-                  labelText: "Catatan",
-                  border: const OutlineInputBorder(),
-                  labelStyle: TextStyle(
-                    color: _isDarkMode ? Colors.white70 : Colors.black54,
-                  ),
-                ),
+              DropdownButtonFormField<String>(value:_listkategori.contains(_kategoriterpilih)?_kategoriterpilih:'Umum',
+              dropdownColor: _isDarkMode ? const Color(0xFF1E1E1E) : Colors.white,style: TextStyle(color:_isDarkMode ? Colors.white : Colors.black),
+              decoration: InputDecoration(
+                labelText: "Kategori",
+                border: const OutlineInputBorder(),
+                labelStyle: TextStyle(color: _isDarkMode ? Colors.white70 : Colors.black54),
               ),
+              items:_listkategori.map((kat)=>
+              DropdownMenuItem(
+                value: kat,
+                child: Row (
+                  children:[
+                    Icon(_getIkonKategori(kat),size:18,color:Colors.blueAccent),
+                    const SizedBox(width: 10),
+                    Text(kat),
+                  ],
+                ),
+                )).toList(),
+                onChanged: (val){
+                  if (val!= null) setModal(()=> _kategoriterpilih = val);
+                },
+                ),
+                const SizedBox (height: 10),
               ListTile(
                 leading: Icon(
                   Icons.calendar_month,
@@ -883,6 +1052,7 @@ class _HomePageState extends State<HomePage> {
                         'tabungan_id': daftarKantong[indexTerpilih]['id'],
                         'amount': tipe == 'Masuk' ? n : -n,
                         'notes': _catatanController.text,
+                        'kategori': _kategoriterpilih,
                         'created_at': tgl.toIso8601String(),
                       });
                       await DatabaseHelper.instance.updateSaldo(
@@ -1072,18 +1242,23 @@ class _HomePageState extends State<HomePage> {
     );
   }
 
-void _tampilkanPilihanKurs() {
+  void _tampilkanPilihanKurs() {
     List<String> semuaNegara = _allRates.keys.toList()..sort();
 
     showModalBottomSheet(
       context: context,
       backgroundColor: _isDarkMode ? const Color(0xFF1E1E1E) : Colors.white,
-      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
       builder: (ctx) => Column(
         children: [
           const Padding(
             padding: EdgeInsets.all(15),
-            child: Text("Pilih Mata Uang Global", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+            child: Text(
+              "Pilih Mata Uang Global",
+              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+            ),
           ),
           Expanded(
             child: ListView.builder(
@@ -1091,9 +1266,26 @@ void _tampilkanPilihanKurs() {
               itemBuilder: (ctx, i) {
                 String code = semuaNegara[i];
                 return ListTile(
-                  leading: CircleAvatar(backgroundColor: Colors.blueAccent.withValues(alpha: 0.1), child: Text(code, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold))),
-                  title: Text(code, style: TextStyle(color: _isDarkMode ? Colors.white : Colors.black, fontWeight: FontWeight.bold)),
-                  trailing: _mataUangAktif == code ? const Icon(Icons.check_circle, color: Colors.blue) : null,
+                  leading: CircleAvatar(
+                    backgroundColor: Colors.blueAccent.withValues(alpha: 0.1),
+                    child: Text(
+                      code,
+                      style: const TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ),
+                  title: Text(
+                    code,
+                    style: TextStyle(
+                      color: _isDarkMode ? Colors.white : Colors.black,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  trailing: _mataUangAktif == code
+                      ? const Icon(Icons.check_circle, color: Colors.blue)
+                      : null,
                   onTap: () {
                     setState(() => _mataUangAktif = code);
                     Navigator.pop(ctx);
