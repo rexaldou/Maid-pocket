@@ -13,37 +13,10 @@ import 'database_helper.dart';
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
+import 'apptheme_helper.dart';
+import 'walletcard.dart';
+import 'currency.dart';
 
-class AnimatedCounter extends StatelessWidget {
-  final double value;
-  final TextStyle style;
-  final String prefix;
-
-  const AnimatedCounter({
-    super.key,
-    required this.value,
-    required this.style,
-    this.prefix = 'Rp',
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return TweenAnimationBuilder<double>(
-      tween: Tween<double>(begin: 0, end: value),
-      duration: const Duration(milliseconds: 1000),
-      curve: Curves.easeOutExpo,
-      builder: (context, double val, child) {
-        String formatAngka = NumberFormat.simpleCurrency(
-          name: prefix, // prefix di sini isinya 'IDR', 'USD', dll
-          decimalDigits: (prefix == 'IDR' || prefix == 'JPY' || prefix == 'KRW')
-              ? 0
-              : 2,
-        ).format(val);
-        return Text(formatAngka, style: style);
-      },
-    );
-  }
-}
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -92,7 +65,6 @@ class _HomePageState extends State<HomePage> {
   final TextEditingController _nominalController = TextEditingController();
   final TextEditingController _catatanController = TextEditingController();
 
-  // Memori buat nampung SEMUA mata uang di dunia secara otomatis (Mesin Baru)
   String _mataUangAktif = 'IDR';
   Map<String, dynamic> _allRates = {'IDR': 1.0};
 
@@ -102,8 +74,8 @@ class _HomePageState extends State<HomePage> {
   @override
   void initState() {
     super.initState();
-    _loadKursLokal();
-    _fetchKursOtomatis();
+    CurrencyProvider.loadKursLokal();
+    CurrencyProvider.fetchKursOtomatis();
 
     _pageController = PageController(viewportFraction: 0.85);
     _refresh();
@@ -114,53 +86,6 @@ class _HomePageState extends State<HomePage> {
       if (account != null) _autoBackupCloud();
     });
     _googleSignIn.signInSilently();
-  }
-
-  // --- LOGIKA API GLOBAL 160+ NEGARA ---
-  Future<void> _fetchKursOtomatis() async {
-    try {
-      final response = await http.get(
-        Uri.parse('https://open.er-api.com/v6/latest/USD'),
-      );
-      if (response.statusCode == 200) {
-        final data = json.decode(response.body);
-        final rates = data['rates'] as Map<String, dynamic>;
-
-        double usdToIdr = rates['IDR']?.toDouble() ?? 16000.0;
-        Map<String, dynamic> convertedRates = {};
-
-        rates.forEach((key, value) {
-          convertedRates[key] = usdToIdr / (value?.toDouble() ?? 1.0);
-        });
-
-        setState(() {
-          _allRates = convertedRates;
-        });
-
-        final prefs = await SharedPreferences.getInstance();
-        await prefs.setString('all_rates_cache', json.encode(convertedRates));
-      }
-    } catch (e) {
-      debugPrint("Gagal update global currency, aman pake data lokal.");
-    }
-  }
-
-  // Baca data yang udah didownload pas lagi offline
-  Future<void> _loadKursLokal() async {
-    final prefs = await SharedPreferences.getInstance();
-    final String? cachedRates = prefs.getString('all_rates_cache');
-    if (cachedRates != null) {
-      setState(() {
-        _allRates = Map<String, dynamic>.from(json.decode(cachedRates));
-      });
-    }
-  }
-
-  // Logika hitung konversi saldo
-  double _getConvertedSaldo(double saldo) {
-    double rate = _allRates[_mataUangAktif]?.toDouble() ?? 1.0;
-    if (_mataUangAktif == 'IDR') return saldo;
-    return saldo / rate;
   }
 
   // --- LOGIKA DATABASE & CLOUD ---
@@ -226,131 +151,6 @@ class _HomePageState extends State<HomePage> {
     }
   }
 
-  // --- LOGIKA LIMIT & QUOTES 4 FASE ---
-  int _getStatus(double saldo, double lKuning, double lHijau) {
-    if (saldo <= 0) return 0; // Merah
-    if (saldo <= lKuning) return 1; // Kuning
-    if (saldo <= lHijau) return 2; // Hijau
-    return 3; // Biru
-  }
-
-  String _getQuotes(int status) {
-    if (status == 0) return "Uhee~ dompetnya kering banget... 😭";
-    if (status == 1) return "Hati-hati kamu, saldo menipis! ⚠️";
-    if (status == 2) return "Aman terkendali, Jangan boros! 🌿";
-    return "Widih kaya nich,bagi dong~";
-  }
-
-  IconData _getQuoteIcon(int status) {
-    if (status == 0) return Icons.error_outline;
-    if (status == 1) return Icons.warning_amber_rounded;
-    if (status == 2) return Icons.eco_outlined;
-    return Icons.diamond_outlined;
-  }
-
-  List<Color> _getAdaptiveGradient(int status, int tema) {
-    if (_isDarkMode) {
-      if (tema == 0) {
-        return [
-          [const Color(0xFFFF5252), const Color(0xFFD50000)],
-          [const Color(0xFFFFD740), const Color(0xFFFFAB00)],
-          [const Color(0xFF69F0AE), const Color(0xFF00E676)],
-          [const Color(0xFF40C4FF), const Color(0xFF0091EA)],
-        ][status];
-      }
-      if (tema == 1) {
-        return [
-          [const Color(0xFF4A148C), const Color(0xFF311B92)],
-          [const Color(0xFF880E4F), const Color(0xFF4A148C)],
-          [const Color(0xFFC2185B), const Color(0xFF7B1FA2)],
-          [const Color(0xFFFF4081), const Color(0xFFE040FB)],
-        ][status];
-      }
-      if (tema == 2) {
-        return [
-          [const Color(0xFF00102A), const Color(0xFF001F4D)],
-          [const Color(0xFF003C8F), const Color(0xFF005CB2)],
-          [const Color(0xFF1976D2), const Color(0xFF1E88E5)],
-          [const Color(0xFF448AFF), const Color(0xFF40C4FF)],
-        ][status];
-      }
-      if (tema == 3) {
-        return [
-          [const Color(0xFF3E2723), const Color(0xFF4E342E)],
-          [const Color(0xFFBF360C), const Color(0xFFD84315)],
-          [const Color(0xFFE64A19), const Color(0xFFF4511E)],
-          [const Color(0xFFFF6D00), const Color(0xFFFF9100)],
-        ][status];
-      }
-      if (tema == 4) {
-        return [
-          [const Color(0xFF1B5E20), const Color(0xFF004D40)],
-          [const Color(0xFF2E7D32), const Color(0xFF00695C)],
-          [const Color(0xFF43A047), const Color(0xFF00897B)],
-          [const Color(0xFF00E676), const Color(0xFF1DE9B6)],
-        ][status];
-      }
-      if (tema == 5) {
-        return [
-          [const Color(0xFF1A237E), const Color(0xFF12185B)],
-          [const Color(0xFF311B92), const Color(0xFF1A237E)],
-          [const Color(0xFF5E35B1), const Color(0xFF3949AB)],
-          [const Color(0xFFAA00FF), const Color(0xFF536DFE)],
-        ][status];
-      }
-    } else {
-      if (tema == 0) {
-        return [
-          [Colors.red.shade300, Colors.red.shade600],
-          [Colors.orange.shade300, Colors.orange.shade600],
-          [Colors.green.shade400, Colors.green.shade600],
-          [Colors.blue.shade300, Colors.blue.shade600],
-        ][status];
-      }
-      if (tema == 1) {
-        return [
-          [Colors.pink.shade900, Colors.purple.shade900],
-          [Colors.pink.shade700, Colors.purple.shade700],
-          [Colors.pink.shade400, Colors.purple.shade400],
-          [Colors.pinkAccent.shade100, Colors.purpleAccent.shade100],
-        ][status];
-      }
-      if (tema == 2) {
-        return [
-          [Colors.indigo.shade900, Colors.blue.shade900],
-          [Colors.indigo.shade600, Colors.blue.shade700],
-          [Colors.blue.shade400, Colors.cyan.shade600],
-          [Colors.lightBlueAccent.shade100, Colors.cyanAccent.shade200],
-        ][status];
-      }
-      if (tema == 3) {
-        return [
-          [Colors.brown.shade800, Colors.deepOrange.shade900],
-          [Colors.deepOrange.shade600, Colors.orange.shade700],
-          [Colors.orange.shade400, Colors.amber.shade600],
-          [Colors.amberAccent.shade200, Colors.yellowAccent.shade200],
-        ][status];
-      }
-      if (tema == 4) {
-        return [
-          [Colors.green.shade900, Colors.teal.shade900],
-          [Colors.green.shade700, Colors.teal.shade700],
-          [Colors.green.shade400, Colors.teal.shade400],
-          [Colors.lightGreenAccent.shade200, Colors.tealAccent.shade200],
-        ][status];
-      }
-      if (tema == 5) {
-        return [
-          [Colors.deepPurple.shade900, Colors.indigo.shade900],
-          [Colors.deepPurple.shade600, Colors.indigo.shade700],
-          [Colors.purple.shade400, Colors.deepPurple.shade400],
-          [Colors.purpleAccent.shade100, Colors.deepPurpleAccent.shade100],
-        ][status];
-      }
-    }
-    return [Colors.grey, Colors.blueGrey];
-  }
-
   @override
   Widget build(BuildContext context) {
     final Color currentBg = _isDarkMode
@@ -390,7 +190,7 @@ class _HomePageState extends State<HomePage> {
           ? _buildEmptyState(txtCol)
           : Column(
               children: [
-                _buildWalletSlider(),
+                Walletcard._buildWalletSlider(),
                 _buildActionButtons(txtCol),
                 const SizedBox(height: 10),
                 _buildRiwayatHeader(txtCol),
@@ -561,194 +361,7 @@ class _HomePageState extends State<HomePage> {
     ),
   );
 
-  Widget _buildWalletSlider() => SizedBox(
-    height: 250,
-    child: PageView.builder(
-      controller: _pageController,
-      itemCount: daftarKantong.length,
-      onPageChanged: (i) => setState(() {
-        indexTerpilih = i;
-        _refresh();
-      }),
-      itemBuilder: (ctx, i) {
-        var kntg = daftarKantong[i];
-        int status = _getStatus(
-          (kntg['saldo'] ?? 0).toDouble(),
-          (kntg['limit_kuning'] ?? 50000).toDouble(),
-          (kntg['limit_hijau'] ?? 500000).toDouble(),
-        );
-        List<Color> grad = _getAdaptiveGradient(status, kntg['tema_id'] ?? 0);
 
-        return AnimatedBuilder(
-          animation: _pageController,
-          builder: (context, child) {
-            double value = 1.0;
-            if (_pageController.position.haveDimensions) {
-              value = _pageController.page! - i;
-              value = (1 - (value.abs() * 0.2)).clamp(0.0, 1.0);
-            }
-            return Transform.scale(
-              scale: Curves.easeOut.transform(value),
-              child: Opacity(opacity: value.clamp(0.4, 1.0), child: child),
-            );
-          },
-          child: AnimatedContainer(
-            duration: const Duration(milliseconds: 500),
-            margin: const EdgeInsets.symmetric(horizontal: 10, vertical: 15),
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(25),
-              gradient: LinearGradient(
-                colors: grad,
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-              ),
-              boxShadow: [
-                BoxShadow(
-                  color: grad[0].withValues(alpha: 0.4),
-                  blurRadius: 15,
-                  offset: const Offset(0, 5),
-                ),
-              ],
-              image: kntg['banner_path'] != null
-                  ? DecorationImage(
-                      image: FileImage(File(kntg['banner_path'])),
-                      fit: BoxFit.cover,
-                    )
-                  : null,
-            ),
-            child: Container(
-              padding: const EdgeInsets.all(20),
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(25),
-                color: Colors.black.withValues(
-                  alpha: kntg['banner_path'] != null ? 0.5 : 0.1,
-                ),
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  // 🔥 1. INI JUDUL & TOMBOL EDIT (Sudah dikembalikan!)
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Text(
-                        kntg['nama'].toUpperCase(),
-                        style: const TextStyle(
-                          color: Colors.white,
-                          letterSpacing: 1.5,
-                          fontSize: 14,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                      IconButton(
-                        padding: EdgeInsets.zero,
-                        constraints: const BoxConstraints(),
-                        icon: const Icon(
-                          Icons.edit_note,
-                          color: Colors.white,
-                          size: 28,
-                        ),
-                        onPressed: () => _tampilkanPilihanBanner(kntg),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 10),
-
-                  // 🔥 2. INI TOMBOL DROPDOWN NEGARA & SALDO (160+ Mata Uang)
-                  Row(
-                    children: [
-                      InkWell(
-                        onTap: () => _tampilkanPilihanKurs(),
-                        borderRadius: BorderRadius.circular(10),
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 10,
-                            vertical: 6,
-                          ),
-                          decoration: BoxDecoration(
-                            color: Colors.white.withValues(alpha: 0.2),
-                            borderRadius: BorderRadius.circular(10),
-                          ),
-                          child: Row(
-                            children: [
-                              Text(
-                                _mataUangAktif,
-                                style: const TextStyle(
-                                  color: Colors.white,
-                                  fontWeight: FontWeight.bold,
-                                  fontSize: 14,
-                                ),
-                              ),
-                              const Icon(
-                                Icons.arrow_drop_down,
-                                color: Colors.white,
-                                size: 20,
-                              ),
-                            ],
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: FittedBox(
-                          fit: BoxFit.scaleDown,
-                          alignment: Alignment.centerLeft,
-                          child: _hideSaldo
-                              ? const Text(
-                                  "••••••••",
-                                  style: TextStyle(
-                                    color: Colors.white,
-                                    fontSize: 32,
-                                    fontWeight: FontWeight.bold,
-                                  ),
-                                )
-                              : AnimatedCounter(
-                                  value: _getConvertedSaldo(
-                                    (kntg['saldo'] ?? 0).toDouble(),
-                                  ),
-                                  prefix: _mataUangAktif,
-                                  style: const TextStyle(
-                                    color: Colors.white,
-                                    fontSize: 32,
-                                    fontWeight: FontWeight.bold,
-                                  ),
-                                ),
-                        ),
-                      ),
-                    ],
-                  ),
-
-                  const Spacer(),
-
-                  // 🔥 3. INI QUOTES
-                  Row(
-                    children: [
-                      Icon(
-                        _getQuoteIcon(status),
-                        color: Colors.white,
-                        size: 16,
-                      ),
-                      const SizedBox(width: 6),
-                      Expanded(
-                        child: Text(
-                          _getQuotes(status),
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 12,
-                            fontStyle: FontStyle.italic,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ],
-              ),
-            ),
-          ),
-        );
-      },
-    ),
-  );
 
   Widget _buildActionButtons(Color txtCol) => Row(
     mainAxisAlignment: MainAxisAlignment.spaceEvenly,
