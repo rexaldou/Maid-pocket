@@ -1,15 +1,16 @@
-import 'package:flutter/material.dart';
-import 'package:google_fonts/google_fonts.dart';
-import 'package:firebase_core/firebase_core.dart';
-import 'package:google_sign_in/google_sign_in.dart';
-import 'database_helper.dart';
-import 'walletcard.dart';
-import 'currency.dart';
-import 'cloud_backup.dart';
-import 'modern_drawer.dart';
-import 'riwayat_list.dart';
-import 'action_buttons.dart';
-import 'popup_dialog.dart'; // 🌸 Import file barumu!
+import 'package:flutter/material.dart'; //Wo dasar iki
+import 'package:google_fonts/google_fonts.dart'; //Google Fonts, biar fontnya lebih kece
+import 'package:firebase_core/firebase_core.dart'; //Firebase Core, buat koneksi ke Firebase
+import 'package:google_sign_in/google_sign_in.dart'; //Google Sign-In, buat login dengan akun Google
+import 'database_helper.dart'; //Database,buat ngatur data transaksi dan tabungan
+import 'walletcard.dart'; //Wallet Card, buat nampilin kartu dompet yang bisa di scroll
+import 'currency.dart'; //Currency, buat ngatur kurs mata uang dan konversi
+import 'cloud_backup.dart'; //Cloud Backup, buat backup data ke cloud (Firebase) dan restore data dari cloud
+import 'modern_drawer.dart'; //Modern Drawer, buat tampilan drawer yang lebih modern dan menarik
+import 'riwayat_list.dart'; //Riwayat List, buat nampilin list riwayat transaksi dengan tampilan yang rapi dan informatif
+import 'action_buttons.dart'; //Action Buttons, buat tombol masuk dan keluar 
+import 'popup_dialog.dart';  //Popup Dialog, buat nampilin dialog popup untuk tambah dompet, tambah transaksi, edit transaksi, ya lu bayangin aja sendiri
+import 'statistik_chart.dart'; //Statistik Chart, buat nampilin chart statistik pemasukan dan pengeluaran per kategori,
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -157,6 +158,7 @@ class _HomePageState extends State<HomePage> {
                   onMasuk: () => PopupHelper.bukaForm(context: context, isDarkMode: _isDarkMode, tabunganId: daftarKantong[indexTerpilih]['id'], saldoSekarang: (daftarKantong[indexTerpilih]['saldo'] ?? 0).toDouble(), tipe: "Masuk", onRefresh: _refresh),
                   onKeluar: () => PopupHelper.bukaForm(context: context, isDarkMode: _isDarkMode, tabunganId: daftarKantong[indexTerpilih]['id'], saldoSekarang: (daftarKantong[indexTerpilih]['saldo'] ?? 0).toDouble(), tipe: "Keluar", onRefresh: _refresh),
                 ),
+                StatistikChart(data: riwayatTransaksi), // Nambahin widget chart statistik
                 const SizedBox(height: 10),
                 Column(
                   children: [
