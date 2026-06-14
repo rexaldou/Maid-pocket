@@ -152,14 +152,14 @@ class _HomePageState extends State<HomePage> {
                   onPageChanged: (i) => setState(() { indexTerpilih = i; _refresh(); }),
                   onEditBanner: (kntg) => PopupHelper.tampilkanPilihanBanner(context, _isDarkMode, kntg, _refresh),
                   onPilihKurs: () => PopupHelper.tampilkanPilihanKurs(context, _isDarkMode, _allRates, _mataUangAktif, (code) => setState(() => _mataUangAktif = code)),
-                ),
+                ), //Ini si Wallet Card
                 ActionButtons(
                   txtCol: txtCol,
                   onMasuk: () => PopupHelper.bukaForm(context: context, isDarkMode: _isDarkMode, tabunganId: daftarKantong[indexTerpilih]['id'], saldoSekarang: (daftarKantong[indexTerpilih]['saldo'] ?? 0).toDouble(), tipe: "Masuk", onRefresh: _refresh),
                   onKeluar: () => PopupHelper.bukaForm(context: context, isDarkMode: _isDarkMode, tabunganId: daftarKantong[indexTerpilih]['id'], saldoSekarang: (daftarKantong[indexTerpilih]['saldo'] ?? 0).toDouble(), tipe: "Keluar", onRefresh: _refresh),
-                ),
+                ), //Ini tombol masuk dan keluar
                 StatistikChart(data: riwayatTransaksi), // Nambahin widget chart statistik
-                const SizedBox(height: 10),
+                const SizedBox(height: 10), // Jarak antara chart dan riwayat
                 Column(
                   children: [
                     Padding(
@@ -176,12 +176,12 @@ class _HomePageState extends State<HomePage> {
                     Container(height: 1, color: txtCol.withValues(alpha: 0.1), margin: const EdgeInsets.symmetric(horizontal: 20)),
                     const SizedBox(height: 5),
                   ],
-                ),
+                ), // Judul dan garis pembatas untuk bagian riwayat transaksi
                 RiwayatList(
                   riwayatTransaksi: riwayatTransaksi, txtCol: txtCol, cardCol: cardCol,
                   onEdit: (trx) => PopupHelper.bukaForm(context: context, isDarkMode: _isDarkMode, tabunganId: daftarKantong[indexTerpilih]['id'], saldoSekarang: (daftarKantong[indexTerpilih]['saldo'] ?? 0).toDouble(), dataLama: trx, onRefresh: _refresh),
                   onHapus: (trx) => _hapusTrx(trx),
-                ),
+                ), //List riwayat transaksi, bisa di scroll kalo banyak, dan ada tombol edit hapus di tiap itemnya
               ],
             ),
     );
