@@ -2,15 +2,17 @@ import 'package:flutter/material.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 
 class ModernDrawer extends StatelessWidget {
-  // 1. Minta data dari main.dart
+  // Minta data dari main.dart
   final Color txtCol;
   final Color cardCol;
   final bool isDarkMode;
   final GoogleSignInAccount? currentUser;
   final bool hideSaldo;
   final GoogleSignIn googleSignIn;
+  final bool biometricAktif;
+  final ValueChanged<bool> onToggleBiometric;
 
-  // 2. Colokan remote buat tombol switch "Data Privacy"
+  // Tombol switch buat Privacy,ya sensor lah
   final ValueChanged<bool> onToggleHideSaldo;
 
   const ModernDrawer({
@@ -22,6 +24,8 @@ class ModernDrawer extends StatelessWidget {
     required this.hideSaldo,
     required this.googleSignIn,
     required this.onToggleHideSaldo,
+    required this.biometricAktif,
+    required this.onToggleBiometric,
   });
 
   @override

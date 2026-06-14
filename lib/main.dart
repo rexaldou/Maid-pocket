@@ -10,7 +10,9 @@ import 'modern_drawer.dart'; //Modern Drawer, buat tampilan drawer yang lebih mo
 import 'riwayat_list.dart'; //Riwayat List, buat nampilin list riwayat transaksi dengan tampilan yang rapi dan informatif
 import 'action_buttons.dart'; //Action Buttons, buat tombol masuk dan keluar 
 import 'popup_dialog.dart';  //Popup Dialog, buat nampilin dialog popup untuk tambah dompet, tambah transaksi, edit transaksi, ya lu bayangin aja sendiri
-import 'statistik_chart.dart'; //Statistik Chart, buat nampilin chart statistik pemasukan dan pengeluaran per kategori,
+import 'statistik_chart.dart'; //Statistik Chart, buat nampilin chart statistik pemasukan dan pengeluaran per kategori
+import 'biometric.dart'; //Biometric, ya buat login,mau buat apalagi
+import 'dart:io'; //Dart IO, buat exit aplikasi kalo biometrik gagal
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -52,6 +54,7 @@ class _HomePageState extends State<HomePage> {
   int indexTerpilih = 0;
   bool _hideSaldo = false;
   bool _isDarkMode = false;
+  bool _biometricAktif = true;
   late PageController _pageController;
 
   GoogleSignInAccount? _currentUser;
@@ -70,6 +73,13 @@ class _HomePageState extends State<HomePage> {
       if (account != null) CloudService.autoBackupCloud(_currentUser);
     });
     _googleSignIn.signInSilently();
+    if (_biometricAktif) {
+      BiometricAuth.authenticate().then((lolos) {
+        if (!lolos) {
+          exit (0);
+        }
+      });
+    }
   }
 
   void _inisialisasiKurs() async {
@@ -129,9 +139,22 @@ class _HomePageState extends State<HomePage> {
         ],
       ),
       drawer: ModernDrawer(
+        biometricAktif: _biometricAktif,
         txtCol: txtCol, cardCol: cardCol, isDarkMode: _isDarkMode,
         currentUser: _currentUser, hideSaldo: _hideSaldo, googleSignIn: _googleSignIn,
         onToggleHideSaldo: (val) => setState(() => _hideSaldo = val),
+        onToggleBiometric: (val) async {
+          if (val == false) {
+            bool lolos = await BiometricAuth.authenticate();
+            if (lolos) {
+              setState(() => _biometricAktif = false);
+            } else {
+              setState(() => _biometricAktif = true);
+            }
+          } else {
+          setState(() => _biometricAktif = true );
+          }
+        }
       ),
       body: daftarKantong.isEmpty
           ? Center(
@@ -179,7 +202,13 @@ class _HomePageState extends State<HomePage> {
                 ), // Judul dan garis pembatas untuk bagian riwayat transaksi
                 RiwayatList(
                   riwayatTransaksi: riwayatTransaksi, txtCol: txtCol, cardCol: cardCol,
-                  onEdit: (trx) => PopupHelper.bukaForm(context: context, isDarkMode: _isDarkMode, tabunganId: daftarKantong[indexTerpilih]['id'], saldoSekarang: (daftarKantong[indexTerpilih]['saldo'] ?? 0).toDouble(), dataLama: trx, onRefresh: _refresh),
+                  onEdit: (trx) async {
+                    bool lolos = _biometricAktif ? await BiometricAuth.authenticate() : true; //Cek biometrik sebelum edit
+                    if (lolos) {
+                      if (!context.mounted) return;
+                      PopupHelper.bukaForm(context: context, isDarkMode: _isDarkMode, tabunganId: daftarKantong[indexTerpilih]['id'], saldoSekarang: (daftarKantong[indexTerpilih]['saldo'] ?? 0).toDouble(), dataLama: trx, onRefresh: _refresh);
+                    }
+                  },
                   onHapus: (trx) => _hapusTrx(trx),
                 ), //List riwayat transaksi, bisa di scroll kalo banyak, dan ada tombol edit hapus di tiap itemnya
               ],
