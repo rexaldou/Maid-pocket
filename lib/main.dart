@@ -144,7 +144,7 @@ class _HomePageState extends State<HomePage> {
                 ],
               ),
             )
-          : Column(
+          : Column( //Ini tampilan utama setelah ada data dompet, masih bisa di scroll nanti kalo banyak
               children: [
                 Walletcard(
                   daftarKantong: daftarKantong, isDarkMode: _isDarkMode, pageController: _pageController,
