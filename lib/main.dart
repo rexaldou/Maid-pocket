@@ -56,6 +56,7 @@ class _HomePageState extends State<HomePage> {
   bool _isDarkMode = false;
   bool _biometricAktif = true;
   late PageController _pageController;
+  String _kataKunci = "";
 
   GoogleSignInAccount? _currentUser;
   final GoogleSignIn _googleSignIn = GoogleSignIn();
@@ -186,27 +187,44 @@ class _HomePageState extends State<HomePage> {
                 Column(
                   children: [
                     Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 20),
-                      child: Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          Text("Riwayat Terkini", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: txtCol)),
-                          Icon(Icons.history, size: 18, color: txtCol.withValues(alpha: 0.6)),
-                        ],
-                      ),
+                      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 5),
+                      child: TextField(
+                        style: TextStyle(color: txtCol),
+                        decoration: InputDecoration(
+                          hintText: "Cari Riwayat Transaksi.....",
+                          hintStyle: TextStyle(color: txtCol.withValues(alpha: 0.5)),
+                          prefixIcon: Icon(Icons.search, color: txtCol.withValues(alpha: 0.5)), // 🌸 Ubah ke prefixIcon biar rapi
+                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                        ),
+                        onChanged: (val) => setState(() => _kataKunci = val), // Nangkep ketikan
+                      )
                     ),
                     const SizedBox(height: 10),
                     Container(height: 1, color: txtCol.withValues(alpha: 0.1), margin: const EdgeInsets.symmetric(horizontal: 20)),
                     const SizedBox(height: 5),
                   ],
-                ), // Judul dan garis pembatas untuk bagian riwayat transaksi
+                ), // Penutup Column
+                
+                // 🌸 Filter data riwayatTransaksi pakai .where sebelum nampil
                 RiwayatList(
-                  riwayatTransaksi: riwayatTransaksi, txtCol: txtCol, cardCol: cardCol,
+                  riwayatTransaksi: riwayatTransaksi.where((trx) {
+                    final catatan = (trx['notes'] ?? "").toString().toLowerCase();
+                    return catatan.contains(_kataKunci.toLowerCase());
+                  }).toList(),
+                  txtCol: txtCol, 
+                  cardCol: cardCol,
                   onEdit: (trx) async {
-                    bool lolos = _biometricAktif ? await BiometricAuth.authenticate() : true; //Cek biometrik sebelum edit
+                    bool lolos = _biometricAktif ? await BiometricAuth.authenticate() : true; 
                     if (lolos) {
                       if (!context.mounted) return;
-                      PopupHelper.bukaForm(context: context, isDarkMode: _isDarkMode, tabunganId: daftarKantong[indexTerpilih]['id'], saldoSekarang: (daftarKantong[indexTerpilih]['saldo'] ?? 0).toDouble(), dataLama: trx, onRefresh: _refresh);
+                      PopupHelper.bukaForm(
+                        context: context, 
+                        isDarkMode: _isDarkMode, 
+                        tabunganId: daftarKantong[indexTerpilih]['id'], 
+                        saldoSekarang: (daftarKantong[indexTerpilih]['saldo'] ?? 0).toDouble(), 
+                        dataLama: trx, 
+                        onRefresh: _refresh
+                      );
                     }
                   },
                   onHapus: (trx) => _hapusTrx(trx),
