@@ -4,21 +4,24 @@ class ActionButtons extends StatelessWidget {
   final Color txtCol;
   final VoidCallback onMasuk;
   final VoidCallback onKeluar;
+  final VoidCallback onTransfer; // 🌸 Tambahin colokan ini
 
   const ActionButtons({
     super.key,
     required this.txtCol,
     required this.onMasuk,
     required this.onKeluar,
+    required this.onTransfer, // 🌸 Tambahin ini juga
   });
 
   @override
   Widget build(BuildContext context) {
     return Row(
-      mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+      mainAxisAlignment: MainAxisAlignment.spaceEvenly, // 🌸 Ini udah otomatis bikin jaraknya rapi
       children: [
         _btnAction("Masuk", Icons.add, Colors.green, onMasuk, txtCol),
         _btnAction("Keluar", Icons.remove, Colors.red, onKeluar, txtCol),
+        _btnAction("Transfer", Icons.swap_horiz, Colors.blue, onTransfer, txtCol), // 🌸 Tombol transfer nyusul di sini
       ],
     );
   }

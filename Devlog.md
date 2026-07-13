@@ -87,3 +87,4 @@ Uhee~ After a long survival night debugging on a 4GB RAM laptop, MaidPocket offi
 - **Async Context Safety:** Fixed multiple `use_build_context_synchronously` warnings by embedding `if (!ctx.mounted) return;` safety guards before invoking `Navigator.pop()`.
 - **Strict Linter Adherence:** Wrapped all single-line `if` condition flow controls inside proper curly braces `{}` to comply with strict Flutter layout formatting.
 - **Deprecation Cleanups:** Swapped outdated `activeColor` parameter inside `Switch` widgets with the newer `activeThumbColor` implementation.
+k

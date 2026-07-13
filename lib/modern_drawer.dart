@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 
+
+
 class ModernDrawer extends StatelessWidget {
   // Minta data dari main.dart
   final Color txtCol;
@@ -105,7 +107,7 @@ class ModernDrawer extends StatelessWidget {
             trailing: Switch(
               value: hideSaldo,
               activeThumbColor: Colors.orange,
-              onChanged: onToggleHideSaldo, // 🌸 Mencet remote ke main.dart
+              onChanged: onToggleHideSaldo, //Buat manggil fungsi dari main.dart
             ),
           ),
           const Spacer(),

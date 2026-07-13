@@ -7,7 +7,6 @@ class RiwayatList extends StatelessWidget {
   final Color txtCol;
   final Color cardCol;
   
-  // 🌸 Colokan Remote buat edit dan hapus
   final Function(Map<String, dynamic>) onEdit;
   final Function(Map<String, dynamic>) onHapus;
 
@@ -20,7 +19,6 @@ class RiwayatList extends StatelessWidget {
     required this.onHapus,
   });
 
-  // Fungsi ambil ikon kita pindah ke sini aja biar mandiri
   IconData _getIkonKategori(String kategori) {
     switch (kategori) {
       case 'Makan': return Icons.fastfood;
@@ -31,12 +29,13 @@ class RiwayatList extends StatelessWidget {
     }
   }
 
-  // 🌸 INI WUJUD ASLINYA (Wajib pakai "build")
   @override
   Widget build(BuildContext context) {
     return Expanded(
       child: ListView.builder(
-        itemCount: riwayatTransaksi.length,
+        itemCount: riwayatTransaksi.length, // Berubah jadi dinamis agar halaman Lihat Semua tidak macet di 4 data
+        shrinkWrap: true,
+        physics: const NeverScrollableScrollPhysics(),
         itemBuilder: (ctx, i) {
           var trx = riwayatTransaksi[i];
           bool inc = trx['amount'] >= 0;
@@ -49,7 +48,7 @@ class RiwayatList extends StatelessWidget {
               child: const Icon(Icons.delete, color: Colors.white),
             ),
             direction: DismissDirection.endToStart,
-            onDismissed: (dir) => onHapus(trx), // 🌸 Mencet remote Hapus
+            onDismissed: (dir) => onHapus(trx),
             child: Container(
               margin: const EdgeInsets.symmetric(horizontal: 15, vertical: 6),
               decoration: BoxDecoration(
@@ -63,7 +62,7 @@ class RiwayatList extends StatelessWidget {
                 ],
               ),
               child: ListTile(
-                onTap: () => onEdit(trx), // 🌸 Mencet remote Edit (Buka Form)
+                onTap: () => onEdit(trx),
                 leading: CircleAvatar(
                   backgroundColor: (inc ? Colors.green : Colors.red).withValues(alpha: 0.1),
                   child: Icon(

@@ -27,12 +27,13 @@ class DatabaseHelper {
     )''');
     await db.execute('''CREATE TABLE transaksi (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
-      tabungan_id INTEGER, amount REAL, notes TEXT, created_at TEXT
+      tabungan_id INTEGER, amount REAL, notes TEXT, kategori TEXT, created_at TEXT
     )''');
   }
 
   Future _upgradeDB(Database db, int oldV, int newV) async {
     if (oldV < 2) {
+      await db.execute('ALTER TABLE transaksi ADD COLUMN kategori TEXT');
       // Tambah kolom limit kalau upgrade dari versi lama
     }
   }

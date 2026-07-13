@@ -1,11 +1,10 @@
-import 'dart:io'; // 🌸 Buat baca gambar banner dari memori HP
-import 'dart:async'; // 🌸 Buat fitur Timer 5 detiknya
+import 'dart:io'; //Buat baca gambar banner dari memori HP
+import 'dart:async'; // Buat fitur Timer 5 detiknya
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'apptheme_helper.dart';
 import 'currency.dart';
 
-// --- CLASS UTAMA DOMPET ---
 class Walletcard extends StatelessWidget {
   final List<Map<String, dynamic>> daftarKantong;
   final bool isDarkMode;
@@ -40,42 +39,43 @@ class Walletcard extends StatelessWidget {
         itemCount: daftarKantong.length,
         onPageChanged: onPageChanged,
         itemBuilder: (ctx, i) {
-          var kntg = daftarKantong[i];
-
-          // 1. Ambil data dompet mentah
+          var kntg = daftarKantong[i];  
           double saldoAsli = (kntg['saldo'] ?? 0).toDouble();
           double batasKuning = (kntg['limit_kuning'] ?? 50000).toDouble();
           double batasHijau = (kntg['limit_hijau'] ?? 500000).toDouble();
-
-          // 2. Panggil status tema
+          
           int status = Temapp.getStatus(saldoAsli, batasKuning, batasHijau);
-
-          // 3. Logika warna saldo otomatis
-          Color warnaSaldoTxt = isDarkMode ? Colors.white : Colors.black;
-          if (saldoAsli <= batasKuning) {
-            warnaSaldoTxt = Colors.redAccent;
-          } else if (saldoAsli <= batasHijau) {
-            warnaSaldoTxt = Colors.orangeAccent;
-          }
-
           List<Color> grad = Temapp.getAdaptiveGradient(status, kntg['tema_id'] ?? 0, isDarkMode);
 
           return AnimatedBuilder(
             animation: pageController,
             builder: (context, child) {
-              double value = 1.0;
+              double page = 0.0;
               if (pageController.position.haveDimensions) {
-                value = pageController.page! - i;
-                value = (1 - (value.abs() * 0.2)).clamp(0.0, 1.0);
+                page = pageController.page ?? pageController.initialPage.toDouble();
+              } else {
+                page = i.toDouble(); 
               }
-              return Transform.scale(
-                scale: Curves.easeOut.transform(value),
-                child: Opacity(opacity: value.clamp(0.4, 1.0), child: child),
+              
+              double delta = page - i;
+              double scale = (1 - (delta.abs() * 0.15)).clamp(0.85, 1.0);
+              double translateY = delta.abs() * 35.0;
+              double translateX = delta * -15.0;
+              
+              return Transform.translate(
+                offset: Offset(translateX, translateY),
+                child: Transform.scale(
+                  scale: scale,
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 10),
+                    child: child,
+                  ),
+                ),
               );
             },
             child: AnimatedContainer(
               duration: const Duration(milliseconds: 500),
-              margin: const EdgeInsets.symmetric(horizontal: 10, vertical: 15),
+              margin: const EdgeInsets.symmetric(vertical: 15),
               decoration: BoxDecoration(
                 borderRadius: BorderRadius.circular(25),
                 gradient: LinearGradient(
@@ -155,10 +155,10 @@ class Walletcard extends StatelessWidget {
                             fit: BoxFit.scaleDown,
                             alignment: Alignment.centerLeft,
                             child: hideSaldo
-                                ? Text(
+                                ? const Text(
                                     "••••••••",
                                     style: TextStyle(
-                                      color: warnaSaldoTxt,
+                                      color: Colors.white,
                                       fontSize: 32,
                                       fontWeight: FontWeight.bold,
                                     ),
@@ -166,8 +166,8 @@ class Walletcard extends StatelessWidget {
                                 : AnimatedCounter(
                                     value: CurrencyLogic.getConvertedSaldo(saldoAsli, mataUangAktif, allRates),
                                     prefix: mataUangAktif,
-                                    style: TextStyle(
-                                      color: warnaSaldoTxt,
+                                    style: const TextStyle(
+                                      color: Colors.white,
                                       fontSize: 32,
                                       fontWeight: FontWeight.bold,
                                     ),
@@ -177,7 +177,6 @@ class Walletcard extends StatelessWidget {
                       ],
                     ),
                     const Spacer(),
-                    // 🌸 PANGGIL WIDGET ANIMASI MOOD DI SINI
                     MoodQuoteWidget(
                       idKantong: kntg['id'].toString(),
                       saldoSekarang: saldoAsli,
@@ -194,7 +193,6 @@ class Walletcard extends StatelessWidget {
   }
 }
 
-// --- CLASS ANIMASI MOOD TEXT (Punya Otak Sendiri) ---
 class MoodQuoteWidget extends StatefulWidget {
   final String idKantong;
   final double saldoSekarang;
@@ -216,6 +214,7 @@ class _MoodQuoteWidgetState extends State<MoodQuoteWidget> {
   String tempMessage = "";
   // ignore: unused_field
   double _saldoSebelumnya = 0;
+  bool _isIncome = true; 
   Timer? _timer;
 
   @override
@@ -227,12 +226,13 @@ class _MoodQuoteWidgetState extends State<MoodQuoteWidget> {
   @override
   void didUpdateWidget(MoodQuoteWidget oldWidget) {
     super.didUpdateWidget(oldWidget);
-    // Kalau dompetnya sama tapi saldonya berubah, trigger animasi slide!
     if (oldWidget.idKantong == widget.idKantong && oldWidget.saldoSekarang != widget.saldoSekarang) {
       if (widget.saldoSekarang < oldWidget.saldoSekarang) {
         tempMessage = "💸 Waduh, uangnya keluar Senpai...";
+        _isIncome = false; 
       } else {
         tempMessage = "✨ Asik, dapet asupan dana!";
+        _isIncome = true; 
       }
 
       setState(() {
@@ -240,17 +240,15 @@ class _MoodQuoteWidgetState extends State<MoodQuoteWidget> {
         _saldoSebelumnya = widget.saldoSekarang;
       });
 
-      // Mulai hitung mundur 5 detik secara rahasia
       _timer?.cancel();
       _timer = Timer(const Duration(seconds: 5), () {
         if (mounted) {
           setState(() {
-            isShowingTemp = false; // Kembalikan ke teks motivasi normal
+            isShowingTemp = false; 
           });
         }
       });
     } else if (oldWidget.idKantong != widget.idKantong) {
-       // Reset kalau user geser ke kartu dompet lain
        _saldoSebelumnya = widget.saldoSekarang;
        isShowingTemp = false;
     }
@@ -270,7 +268,6 @@ class _MoodQuoteWidgetState extends State<MoodQuoteWidget> {
     return AnimatedSwitcher(
       duration: const Duration(milliseconds: 500),
       transitionBuilder: (Widget child, Animation<double> animation) {
-        // Efek geser (slide) dari bawah ke atas lengkap sama efek pudar
         final slideAnim = Tween<Offset>(begin: const Offset(0.0, 0.5), end: Offset.zero).animate(animation);
         return SlideTransition(position: slideAnim, child: FadeTransition(opacity: animation, child: child));
       },
@@ -279,7 +276,7 @@ class _MoodQuoteWidgetState extends State<MoodQuoteWidget> {
               Key('temp_${widget.idKantong}'),
               Icons.notifications_active,
               tempMessage,
-              Colors.orangeAccent,
+              _isIncome ? Colors.greenAccent : Colors.redAccent, 
             )
           : _buildTextLayout(
               Key('fixed_${widget.idKantong}'),
@@ -307,7 +304,6 @@ class _MoodQuoteWidgetState extends State<MoodQuoteWidget> {
   }
 }
 
-// --- CLASS ANIMASI ANGKA ---
 class AnimatedCounter extends StatelessWidget {
   final double value;
   final TextStyle style;

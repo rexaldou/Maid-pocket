@@ -1,18 +1,21 @@
-import 'package:flutter/material.dart'; //Wo dasar iki
-import 'package:google_fonts/google_fonts.dart'; //Google Fonts, biar fontnya lebih kece
-import 'package:firebase_core/firebase_core.dart'; //Firebase Core, buat koneksi ke Firebase
-import 'package:google_sign_in/google_sign_in.dart'; //Google Sign-In, buat login dengan akun Google
-import 'database_helper.dart'; //Database,buat ngatur data transaksi dan tabungan
-import 'walletcard.dart'; //Wallet Card, buat nampilin kartu dompet yang bisa di scroll
-import 'currency.dart'; //Currency, buat ngatur kurs mata uang dan konversi
-import 'cloud_backup.dart'; //Cloud Backup, buat backup data ke cloud (Firebase) dan restore data dari cloud
-import 'modern_drawer.dart'; //Modern Drawer, buat tampilan drawer yang lebih modern dan menarik
-import 'riwayat_list.dart'; //Riwayat List, buat nampilin list riwayat transaksi dengan tampilan yang rapi dan informatif
-import 'action_buttons.dart'; //Action Buttons, buat tombol masuk dan keluar 
-import 'popup_dialog.dart';  //Popup Dialog, buat nampilin dialog popup untuk tambah dompet, tambah transaksi, edit transaksi, ya lu bayangin aja sendiri
-import 'statistik_chart.dart'; //Statistik Chart, buat nampilin chart statistik pemasukan dan pengeluaran per kategori
-import 'biometric.dart'; //Biometric, ya buat login,mau buat apalagi
-import 'dart:io'; //Dart IO, buat exit aplikasi kalo biometrik gagal
+import 'package:flutter/material.dart';
+import 'package:google_fonts/google_fonts.dart';
+import 'package:firebase_core/firebase_core.dart';
+import 'package:google_sign_in/google_sign_in.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+
+import 'database_helper.dart';
+import 'walletcard.dart';
+import 'currency.dart';
+import 'cloud_backup.dart';
+import 'modern_drawer.dart';
+import 'riwayat_list.dart';
+import 'action_buttons.dart';
+import 'popup_dialog.dart';
+import 'statistik_chart.dart';
+import 'biometric.dart';
+import 'login_screen.dart';
+import 'riwayat_page.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -33,11 +36,15 @@ class MaidPocketApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return MaterialApp(
       debugShowCheckedModeBanner: false,
+      title: 'MaidPocket',
       theme: ThemeData(
-        useMaterial3: true,
+        brightness: Brightness.light,
         textTheme: GoogleFonts.lexendTextTheme(),
       ),
-      home: const HomePage(),
+      darkTheme: ThemeData(
+        brightness: Brightness.dark,
+      ),
+      home: const LoginScreen(),
     );
   }
 }
@@ -56,7 +63,6 @@ class _HomePageState extends State<HomePage> {
   bool _isDarkMode = false;
   bool _biometricAktif = true;
   late PageController _pageController;
-  String _kataKunci = "";
 
   GoogleSignInAccount? _currentUser;
   final GoogleSignIn _googleSignIn = GoogleSignIn();
@@ -67,20 +73,13 @@ class _HomePageState extends State<HomePage> {
   void initState() {
     super.initState();
     _inisialisasiKurs();
-    _pageController = PageController(viewportFraction: 0.85);
+    _pageController = PageController(viewportFraction: 0.75);
     _refresh();
     _googleSignIn.onCurrentUserChanged.listen((account) {
       setState(() => _currentUser = account);
       if (account != null) CloudService.autoBackupCloud(_currentUser);
     });
     _googleSignIn.signInSilently();
-    if (_biometricAktif) {
-      BiometricAuth.authenticate().then((lolos) {
-        if (!lolos) {
-          exit (0);
-        }
-      });
-    }
   }
 
   void _inisialisasiKurs() async {
@@ -90,14 +89,29 @@ class _HomePageState extends State<HomePage> {
     if (dataOnline != null) setState(() => _allRates = dataOnline);
   }
 
+  // Menyegarkan data dengan menyortir urutan dompet berdasarkan preferensi user
   void _refresh() async {
     final data = await DatabaseHelper.instance.ambilSemuaTabungan();
     if (data.isNotEmpty) {
-      if (indexTerpilih >= data.length) indexTerpilih = 0;
-      final log = await DatabaseHelper.instance.ambilRiwayat(data[indexTerpilih]['id']);
+      final prefs = await SharedPreferences.getInstance();
+      List<String>? orderIds = prefs.getStringList('urutan_dompet_lokal');
+      List<Map<String, dynamic>> sortedData = List.from(data);
+      
+      if (orderIds != null) {
+        sortedData.sort((a, b) {
+          int indexA = orderIds.indexOf(a['id'].toString());
+          int indexB = orderIds.indexOf(b['id'].toString());
+          if (indexA == -1) indexA = 999;
+          if (indexB == -1) indexB = 999;
+          return indexA.compareTo(indexB);
+        });
+      }
+
+      if (indexTerpilih >= sortedData.length) indexTerpilih = 0;
+      final log = await DatabaseHelper.instance.ambilRiwayat(sortedData[indexTerpilih]['id']);
       if (!mounted) return;
       setState(() {
-        daftarKantong = data;
+        daftarKantong = sortedData;
         riwayatTransaksi = log;
       });
     } else {
@@ -119,6 +133,129 @@ class _HomePageState extends State<HomePage> {
     _refresh();
   }
 
+  void _bukaPopupTransfer() {
+    if (daftarKantong.length < 2) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("Minimal harus memiliki 2 dompet untuk melakukan transfer")),
+      );
+      return;
+    }
+
+    Map<String, dynamic> dompetAsal = daftarKantong[indexTerpilih];
+    List<Map<String, dynamic>> opsiDompetTujuan = daftarKantong.where((kntg) => kntg['id'] != dompetAsal['id']).toList();
+    Map<String, dynamic> dompetTujuan = opsiDompetTujuan.first;
+    final TextEditingController nominalController = TextEditingController();
+    final TextEditingController catatanController = TextEditingController();
+
+    showDialog(
+      context: context,
+      builder: (ctx) {
+        return StatefulBuilder(
+          builder: (context, setModalState) {
+            return AlertDialog(
+              backgroundColor: _isDarkMode ? const Color(0xFF1E1E1E) : Colors.white,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+              title: Text("Transfer Antar Dompet", style: TextStyle(color: _isDarkMode ? Colors.white : Colors.black87, fontSize: 18, fontWeight: FontWeight.bold)),
+              content: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text("Dari: ${dompetAsal['nama'].toString().toUpperCase()}", style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.grey)),
+                    const SizedBox(height: 15),
+                    Text("Ke Dompet Tujuan", style: TextStyle(color: _isDarkMode ? Colors.white70 : Colors.black54, fontSize: 12, fontWeight: FontWeight.bold)),
+                    const SizedBox(height: 5),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 12),
+                      decoration: BoxDecoration(color: _isDarkMode ? Colors.black26 : Colors.grey.shade100, borderRadius: BorderRadius.circular(10)),
+                      child: DropdownButtonHideUnderline(
+                        child: DropdownButton<int>(
+                          isExpanded: true,
+                          dropdownColor: _isDarkMode ? const Color(0xFF1E1E1E) : Colors.white,
+                          value: dompetTujuan['id'],
+                          items: opsiDompetTujuan.map((kntg) {
+                            return DropdownMenuItem<int>(
+                              value: kntg['id'],
+                              child: Text(kntg['nama'].toString().toUpperCase(), style: TextStyle(color: _isDarkMode ? Colors.white : Colors.black87)),
+                            );
+                          }).toList(),
+                          onChanged: (val) {
+                            setModalState(() {
+                              dompetTujuan = opsiDompetTujuan.firstWhere((kntg) => kntg['id'] == val);
+                            });
+                          },
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 15),
+                    TextField(
+                      controller: nominalController,
+                      keyboardType: TextInputType.number,
+                      style: TextStyle(color: _isDarkMode ? Colors.white : Colors.black),
+                      decoration: InputDecoration(
+                        labelText: "Nominal Transfer",
+                        labelStyle: TextStyle(color: _isDarkMode ? Colors.white70 : Colors.black54),
+                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                      ),
+                    ),
+                    const SizedBox(height: 15),
+                    TextField(
+                      controller: catatanController,
+                      style: TextStyle(color: _isDarkMode ? Colors.white : Colors.black),
+                      decoration: InputDecoration(
+                        labelText: "Catatan (Opsional)",
+                        labelStyle: TextStyle(color: _isDarkMode ? Colors.white70 : Colors.black54),
+                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              actions: [
+                TextButton(onPressed: () => Navigator.pop(ctx), child: const Text("Batal", style: TextStyle(color: Colors.grey))),
+                ElevatedButton(
+                  style: ElevatedButton.styleFrom(backgroundColor: Colors.blueAccent, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10))),
+                  onPressed: () async {
+                    double? jumlah = double.tryParse(nominalController.text);
+                    if (jumlah == null || jumlah <= 0) return;
+                    double saldoAsal = (dompetAsal['saldo'] ?? 0).toDouble();
+                    if (jumlah > saldoAsal) {
+                      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Saldo tidak mencukupi")));
+                      return;
+                    }
+                    int idAsal = dompetAsal['id'];
+                    int idTujuan = dompetTujuan['id'];
+                    String catatanUser = catatanController.text.trim();
+                    String waktuSekarang = DateTime.now().toIso8601String();
+
+                    await DatabaseHelper.instance.updateSaldo(idAsal, saldoAsal - jumlah);
+                    await DatabaseHelper.instance.updateSaldo(idTujuan, (dompetTujuan['saldo'] ?? 0).toDouble() + jumlah);
+
+                    await DatabaseHelper.instance.tambahTransaksi({
+                      'tabungan_id': idAsal, 'amount': -jumlah,
+                      'notes': "Transfer ke ${dompetTujuan['nama']}: $catatanUser".trim(),
+                      'created_at': waktuSekarang, 'kategori': 'Umum'
+                    });
+                    await DatabaseHelper.instance.tambahTransaksi({
+                      'tabungan_id': idTujuan, 'amount': jumlah,
+                      'notes': "Transfer dari ${dompetAsal['nama']}: $catatanUser".trim(),
+                      'created_at': waktuSekarang, 'kategori': 'Umum'
+                    });
+
+                    if (!context.mounted) return;
+                    Navigator.pop(ctx);
+                    _refresh();
+                  },
+                  child: const Text("Transfer", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final Color currentBg = _isDarkMode ? const Color(0xFF121212) : const Color(0xFFF8F9FA);
@@ -128,10 +265,14 @@ class _HomePageState extends State<HomePage> {
     return Scaffold(
       backgroundColor: currentBg,
       appBar: AppBar(
-        title: Text("MaidPocket", style: TextStyle(fontWeight: FontWeight.bold, color: txtCol, fontSize: 20)),
+        title: Text("Maid Pocket", style: TextStyle(fontWeight: FontWeight.bold, color: txtCol, fontSize: 20)),
         backgroundColor: Colors.transparent, elevation: 0, iconTheme: IconThemeData(color: txtCol),
         actions: [
           _buildThemeToggle(),
+          IconButton(
+            onPressed: _bukaPopupTransfer,
+            icon: Icon(Icons.swap_horiz, color: _isDarkMode ? Colors.blueAccent : Colors.blue),
+          ),
           IconButton(
             onPressed: () => PopupHelper.tambahDompet(context, _isDarkMode, _refresh),
             icon: Icon(Icons.add_circle_outline, color: _isDarkMode ? Colors.blueAccent : Colors.blue),
@@ -153,9 +294,9 @@ class _HomePageState extends State<HomePage> {
               setState(() => _biometricAktif = true);
             }
           } else {
-          setState(() => _biometricAktif = true );
+            setState(() => _biometricAktif = true);
           }
-        }
+        },
       ),
       body: daftarKantong.isEmpty
           ? Center(
@@ -168,67 +309,80 @@ class _HomePageState extends State<HomePage> {
                 ],
               ),
             )
-          : Column( //Ini tampilan utama setelah ada data dompet, masih bisa di scroll nanti kalo banyak
+          : Column(
               children: [
                 Walletcard(
                   daftarKantong: daftarKantong, isDarkMode: _isDarkMode, pageController: _pageController,
                   mataUangAktif: _mataUangAktif, hideSaldo: _hideSaldo, allRates: _allRates,
                   onPageChanged: (i) => setState(() { indexTerpilih = i; _refresh(); }),
-                  onEditBanner: (kntg) => PopupHelper.tampilkanPilihanBanner(context, _isDarkMode, kntg, _refresh),
+                  // Meneruskan daftarKantong lengkap agar menu "Atur Urutan Dompet" bisa membaca semua data
+                  onEditBanner: (kntg) => PopupHelper.tampilkanPilihanBanner(context, _isDarkMode, kntg, daftarKantong, _refresh),
                   onPilihKurs: () => PopupHelper.tampilkanPilihanKurs(context, _isDarkMode, _allRates, _mataUangAktif, (code) => setState(() => _mataUangAktif = code)),
-                ), //Ini si Wallet Card
+                ),
                 ActionButtons(
                   txtCol: txtCol,
                   onMasuk: () => PopupHelper.bukaForm(context: context, isDarkMode: _isDarkMode, tabunganId: daftarKantong[indexTerpilih]['id'], saldoSekarang: (daftarKantong[indexTerpilih]['saldo'] ?? 0).toDouble(), tipe: "Masuk", onRefresh: _refresh),
                   onKeluar: () => PopupHelper.bukaForm(context: context, isDarkMode: _isDarkMode, tabunganId: daftarKantong[indexTerpilih]['id'], saldoSekarang: (daftarKantong[indexTerpilih]['saldo'] ?? 0).toDouble(), tipe: "Keluar", onRefresh: _refresh),
-                ), //Ini tombol masuk dan keluar
-                StatistikChart(data: riwayatTransaksi), // Nambahin widget chart statistik
-                const SizedBox(height: 10), // Jarak antara chart dan riwayat
-                Column(
-                  children: [
-                    Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 5),
-                      child: TextField(
-                        style: TextStyle(color: txtCol),
-                        decoration: InputDecoration(
-                          hintText: "Cari Riwayat Transaksi.....",
-                          hintStyle: TextStyle(color: txtCol.withValues(alpha: 0.5)),
-                          prefixIcon: Icon(Icons.search, color: txtCol.withValues(alpha: 0.5)), // 🌸 Ubah ke prefixIcon biar rapi
-                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                  onTransfer: _bukaPopupTransfer,
+                ),
+                StatistikChart(data: riwayatTransaksi, isDarkMode: _isDarkMode),
+                const SizedBox(height: 10),
+                Expanded(
+                  child: ListView(
+                    shrinkWrap: true,
+                    children: [
+                      Padding(
+                        padding: const EdgeInsets.only(left: 20, right: 10, top: 15, bottom: 5),
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Text(
+                              "Riwayat Terakhir",
+                              style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: txtCol),
+                            ),
+                            TextButton(
+                              onPressed: () {
+                                Navigator.push(
+                                  context,
+                                  MaterialPageRoute(
+                                    builder: (context) => RiwayatPage(
+                                      tabunganId: daftarKantong[indexTerpilih]['id'],
+                                      isDarkMode: _isDarkMode,
+                                      biometricAktif: _biometricAktif,
+                                      onDataBerubah: _refresh,
+                                    ),
+                                  ),
+                                );
+                              },
+                              child: const Text("Lihat Semua", style: TextStyle(color: Colors.blueAccent, fontWeight: FontWeight.bold)),
+                            ),
+                          ],
                         ),
-                        onChanged: (val) => setState(() => _kataKunci = val), // Nangkep ketikan
-                      )
-                    ),
-                    const SizedBox(height: 10),
-                    Container(height: 1, color: txtCol.withValues(alpha: 0.1), margin: const EdgeInsets.symmetric(horizontal: 20)),
-                    const SizedBox(height: 5),
-                  ],
-                ), // Penutup Column
-                
-                // 🌸 Filter data riwayatTransaksi pakai .where sebelum nampil
-                RiwayatList(
-                  riwayatTransaksi: riwayatTransaksi.where((trx) {
-                    final catatan = (trx['notes'] ?? "").toString().toLowerCase();
-                    return catatan.contains(_kataKunci.toLowerCase());
-                  }).toList(),
-                  txtCol: txtCol, 
-                  cardCol: cardCol,
-                  onEdit: (trx) async {
-                    bool lolos = _biometricAktif ? await BiometricAuth.authenticate() : true; 
-                    if (lolos) {
-                      if (!context.mounted) return;
-                      PopupHelper.bukaForm(
-                        context: context, 
-                        isDarkMode: _isDarkMode, 
-                        tabunganId: daftarKantong[indexTerpilih]['id'], 
-                        saldoSekarang: (daftarKantong[indexTerpilih]['saldo'] ?? 0).toDouble(), 
-                        dataLama: trx, 
-                        onRefresh: _refresh
-                      );
-                    }
-                  },
-                  onHapus: (trx) => _hapusTrx(trx),
-                ), //List riwayat transaksi, bisa di scroll kalo banyak, dan ada tombol edit hapus di tiap itemnya
+                      ),
+                      SizedBox(
+                        height: 300,
+                        child: RiwayatList(
+                          riwayatTransaksi: riwayatTransaksi.take(3).toList(),
+                          txtCol: txtCol, 
+                          cardCol: cardCol,
+                          onEdit: (trx) async {
+                            bool lolos = _biometricAktif ? await BiometricAuth.authenticate() : true; 
+                            if (lolos) {
+                              if (!context.mounted) return;
+                              PopupHelper.tampilkanDetailTransaksi(
+                                context: context, 
+                                isDarkMode: _isDarkMode, 
+                                item: trx, 
+                                onRefresh: _refresh
+                              );
+                            }
+                          },
+                          onHapus: (trx) => _hapusTrx(trx),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
               ],
             ),
     );
