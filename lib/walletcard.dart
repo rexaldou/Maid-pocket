@@ -15,6 +15,7 @@ class Walletcard extends StatelessWidget {
 
   final Function(int) onPageChanged;
   final Function(Map<String, dynamic>) onEditBanner;
+  final VoidCallback onToogleHideSaldo;
   final VoidCallback onPilihKurs;
 
   const Walletcard({
@@ -27,6 +28,7 @@ class Walletcard extends StatelessWidget {
     required this.allRates,
     required this.onPageChanged,
     required this.onEditBanner,
+    required this.onToogleHideSaldo,
     required this.onPilihKurs,
   });
 
@@ -173,6 +175,16 @@ class Walletcard extends StatelessWidget {
                                     ),
                                   ),
                           ),
+                        ),
+                        IconButton(
+                          padding: EdgeInsets.zero,
+                          constraints: const BoxConstraints(),
+                          icon: Icon(
+                            hideSaldo ? Icons.visibility_off : Icons.visibility,
+                            color: Colors.white70,
+                            size: 28,
+                          ),
+                          onPressed: onToogleHideSaldo,
                         ),
                       ],
                     ),

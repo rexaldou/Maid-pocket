@@ -73,7 +73,7 @@ class _HomePageState extends State<HomePage> {
   void initState() {
     super.initState();
     _inisialisasiKurs();
-    _pageController = PageController(viewportFraction: 0.75);
+    _pageController = PageController(viewportFraction: 0.9);
     _refresh();
     _googleSignIn.onCurrentUserChanged.listen((account) {
       setState(() => _currentUser = account);
@@ -270,10 +270,6 @@ class _HomePageState extends State<HomePage> {
         actions: [
           _buildThemeToggle(),
           IconButton(
-            onPressed: _bukaPopupTransfer,
-            icon: Icon(Icons.swap_horiz, color: _isDarkMode ? Colors.blueAccent : Colors.blue),
-          ),
-          IconButton(
             onPressed: () => PopupHelper.tambahDompet(context, _isDarkMode, _refresh),
             icon: Icon(Icons.add_circle_outline, color: _isDarkMode ? Colors.blueAccent : Colors.blue),
           ),
@@ -318,6 +314,7 @@ class _HomePageState extends State<HomePage> {
                   // Meneruskan daftarKantong lengkap agar menu "Atur Urutan Dompet" bisa membaca semua data
                   onEditBanner: (kntg) => PopupHelper.tampilkanPilihanBanner(context, _isDarkMode, kntg, daftarKantong, _refresh),
                   onPilihKurs: () => PopupHelper.tampilkanPilihanKurs(context, _isDarkMode, _allRates, _mataUangAktif, (code) => setState(() => _mataUangAktif = code)),
+                  onToogleHideSaldo: () => setState(() => _hideSaldo = !_hideSaldo),
                 ),
                 ActionButtons(
                   txtCol: txtCol,

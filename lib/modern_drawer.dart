@@ -50,15 +50,14 @@ class ModernDrawer extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                CircleAvatar(
-                  radius: 35,
-                  backgroundColor: Colors.blueAccent,
-                  backgroundImage: currentUser?.photoUrl != null
-                      ? NetworkImage(currentUser!.photoUrl!)
-                      : null,
-                  child: currentUser == null
-                      ? const Icon(Icons.person, size: 40, color: Colors.white)
-                      : null,
+                ListTile(
+                  leading: const Icon(Icons.fingerprint, color: Colors.blue),
+                  title: Text("Otentikasi Sidik Jari", style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: txtCol)),
+                  trailing: Switch(
+                    value: biometricAktif,
+                    activeThumbColor: Colors.blue,
+                    onChanged: onToggleBiometric,
+                  ),
                 ),
                 const SizedBox(height: 15),
                 Text(
@@ -87,29 +86,6 @@ class ModernDrawer extends StatelessWidget {
             Colors.green,
             txtCol,
           ),
-          ListTile(
-            leading: const Icon(Icons.security, color: Colors.orange),
-            title: Text(
-              "Data Privacy",
-              style: TextStyle(
-                fontSize: 14,
-                fontWeight: FontWeight.bold,
-                color: txtCol,
-              ),
-            ),
-            subtitle: Text(
-              hideSaldo ? "Aktif (Saldo Disensor)" : "Nonaktif (Saldo Terlihat)",
-              style: TextStyle(
-                fontSize: 11,
-                color: txtCol.withValues(alpha: 0.7),
-              ),
-            ),
-            trailing: Switch(
-              value: hideSaldo,
-              activeThumbColor: Colors.orange,
-              onChanged: onToggleHideSaldo, //Buat manggil fungsi dari main.dart
-            ),
-          ),
           const Spacer(),
           Padding(
             padding: const EdgeInsets.all(20),
@@ -122,9 +98,17 @@ class ModernDrawer extends StatelessWidget {
                   borderRadius: BorderRadius.circular(15),
                 ),
               ),
-              onPressed: () {
+              onPressed: () async {
                 Navigator.pop(context);
-                currentUser == null ? googleSignIn.signIn() : googleSignIn.disconnect();
+                try {
+                  if (currentUser == null) {
+                    await googleSignIn.signIn();
+                  } else {
+                    await googleSignIn.disconnect();
+                  }
+                } catch (e) {
+                  debugPrint("Uhee~ Gagal login: $e");
+                }
               },
               icon: Icon(currentUser == null ? Icons.login : Icons.logout),
               label: Text(

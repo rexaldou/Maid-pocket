@@ -127,7 +127,12 @@ class PopupHelper {
               actions: [
                 TextButton(onPressed: () => Navigator.pop(ctx), child: const Text("Batal", style: TextStyle(color: Colors.grey))),
                 ElevatedButton(
-                  style: ElevatedButton.styleFrom(backgroundColor: Colors.blueAccent),
+                  style: ElevatedButton.styleFrom (
+                    backgroundColor: Colors.blueAccent,
+                    foregroundColor: Colors.white,
+                    shape : RoundedRectangleBorder (borderRadius: BorderRadius.circular(8)),
+                    padding : const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+                  ),
                   onPressed: () async {
                     final prefs = await SharedPreferences.getInstance();
                     List<String> urutanIds = lokalList.map((e) => e['id'].toString()).toList();
@@ -136,7 +141,7 @@ class PopupHelper {
                     if (!context.mounted) return;
                     Navigator.pop(ctx);
                   },
-                  child: const Text("Simpan", style: TextStyle(color: Colors.white)),
+                  child: const Text("Buat", style: TextStyle(color: Colors.white)),
                 ),
               ],
             );
@@ -147,13 +152,27 @@ class PopupHelper {
   }
 
   static const Map<String, Map<String, String>> _kamusNegara = {
-    'IDR': {'nama': 'Indonesia', 'bendera': '🇮🇩'}, 'USD': {'nama': 'Amerika Serikat', 'bendera': '🇺🇸'},
-    'JPY': {'nama': 'Jepang', 'bendera': '🇯🇵'}, 'EUR': {'nama': 'Uni Eropa', 'bendera': '🇪🇺'},
-    'GBP': {'nama': 'Inggris', 'bendera': '🇬🇧'}, 'SGD': {'nama': 'Singapura', 'bendera': '🇸🇬'},
+    'IDR': {'nama': 'Indonesia', 'bendera': '🇮🇩'},
+    'USD': {'nama': 'Amerika Serikat', 'bendera': '🇺🇸'},
+    'JPY': {'nama': 'Jepang', 'bendera': '🇯🇵'},
+    'EUR': {'nama': 'Uni Eropa', 'bendera': '🇪🇺'},
+    'GBP': {'nama': 'Inggris', 'bendera': '🇬🇧'},
+    'SGD': {'nama': 'Singapura', 'bendera': '🇸🇬'},
+    'AUD': {'nama': 'Australia', 'bendera': '🇦🇺'},
+    'CNY': {'nama': 'Cina (Yuan)', 'bendera': '🇨🇳'},
+    'KRW': {'nama': 'Korea Selatan (Won)', 'bendera': '🇰🇷'},
+    'MYR': {'nama': 'Malaysia (Ringgit)', 'bendera': '🇲🇾'},
+    'THB': {'nama': 'Thailand (Baht)', 'bendera': '🇹🇭'},
+    'SAR': {'nama': 'Arab Saudi (Riyal)', 'bendera': '🇸🇦'},
   };
 
   static void tampilkanPilihanKurs(BuildContext context, bool isDarkMode, Map<String, dynamic> allRates, String mataUangAktif, Function(String) onPilihKurs) {
-    List<String> semuaNegara = allRates.keys.toList()..sort();
+    // 🌸 FITUR FILTER SAKTI: Cuma ambil mata uang yang terdaftar di _kamusNegara aja!
+    List<String> semuaNegara = allRates.keys
+        .where((code) => _kamusNegara.containsKey(code))
+        .toList()
+      ..sort();
+      
     String querySearch = "";
 
     showModalBottomSheet(
@@ -194,7 +213,7 @@ class PopupHelper {
                     itemCount: terfilter.length,
                     itemBuilder: (ctx, i) {
                       String code = terfilter[i];
-                      final info = _kamusNegara[code] ?? {'nama': 'Mata Uang ($code)', 'bendera': '🌐'};
+                      final info = _kamusNegara[code]!; // 🌸 Karena udah difilter, pasti ada isinya!
                       return ListTile(
                         leading: Text(info['bendera']!, style: const TextStyle(fontSize: 26)),
                         title: Text(info['nama']!, style: TextStyle(color: isDarkMode ? Colors.white : Colors.black, fontWeight: FontWeight.bold)),
@@ -280,7 +299,12 @@ class PopupHelper {
           ),
         ),
         actions: [
-          TextButton(
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.blueAccent,
+              foregroundColor: Colors.white,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            ),
             onPressed: () async {
               if (n.isNotEmpty) {
                 await DatabaseHelper.instance.tambahTabungan({'nama': n, 'saldo': 0, 'limit_kuning': 50000, 'limit_hijau': 100000, 'tema_id': 0});
@@ -289,7 +313,7 @@ class PopupHelper {
                 Navigator.pop(ctx);
               }
             },
-            child: const Text("Buat"),
+            child: const Text("Buat", style: TextStyle(fontWeight: FontWeight.bold)),
           ),
         ],
       ),
@@ -326,7 +350,12 @@ class PopupHelper {
           ),
         ),
         actions: [
-          TextButton(
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.blueAccent,
+              foregroundColor: Colors.white,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            ),
             onPressed: () async {
               await DatabaseHelper.instance.updateLimit(kntg['id'], kun, hij);
               onRefresh();
@@ -438,7 +467,18 @@ class PopupHelper {
                   child: ElevatedButton.icon(
                     style: ElevatedButton.styleFrom(backgroundColor: Colors.red.withValues(alpha: 0.1), foregroundColor: Colors.red, elevation: 0, padding: const EdgeInsets.symmetric(vertical: 12)),
                     icon: const Icon(Icons.delete, size: 18), label: const Text("Hapus"),
-                    onPressed: () async { Navigator.pop(ctx); await DatabaseHelper.instance.hapusTransaksi(item['id']); onRefresh(); },
+                    onPressed: () async { 
+                      Navigator.pop(ctx); 
+                      await DatabaseHelper.instance.hapusTransaksi(item['id']); 
+                      //Ngitung balik saldo dompet biar sinkron
+                      final db = await DatabaseHelper.instance.database;
+                      final dompet = await db.query('tabungan', where: 'id = ?', whereArgs: [item['tabungan_id']]);
+                      if (dompet.isNotEmpty) {
+                        double saldoSkrg = (dompet.first['saldo'] as num).toDouble();
+                        await DatabaseHelper.instance.updateSaldo(item['tabungan_id'], saldoSkrg - item['amount']);
+                      }
+                      onRefresh(); 
+                    },
                   ),
                 ),
               ],
